@@ -105,17 +105,23 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
           <Badge variant={customer.isActive ? "outline" : "destructive"} className={customer.isActive ? "border-emerald-500 text-emerald-500" : ""}>
             {customer.isActive ? "Đang hoạt động" : "Đã khóa"}
           </Badge>
-          <Button 
-            variant={customer.isActive ? "destructive" : "outline"} 
-            size="sm"
-            onClick={handleToggleStatus}
-            disabled={disableCustomer.isPending}
-            data-testid="btn-toggle-customer-status"
-          >
-            {disableCustomer.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : 
-             customer.isActive ? <Ban className="h-4 w-4 mr-2" /> : <UserCheck className="h-4 w-4 mr-2" />}
-            {customer.isActive ? "Khóa tài khoản" : "Mở khóa tài khoản"}
-          </Button>
+          {customer.isActive ? (
+            <Button 
+              variant="destructive"
+              size="sm"
+              onClick={handleToggleStatus}
+              disabled={disableCustomer.isPending}
+              data-testid="btn-toggle-customer-status"
+            >
+              {disableCustomer.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Ban className="h-4 w-4 mr-2" />}
+              Khóa tài khoản
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled data-testid="btn-toggle-customer-status">
+              <Ban className="h-4 w-4 mr-2" />
+              Đã khóa
+            </Button>
+          )}
         </div>
       </div>
 

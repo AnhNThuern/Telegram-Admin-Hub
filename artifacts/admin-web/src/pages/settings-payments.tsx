@@ -16,7 +16,7 @@ const paymentSchema = z.object({
   bankName: z.string().min(1, "Tên ngân hàng là bắt buộc"),
   accountNumber: z.string().min(1, "Số tài khoản là bắt buộc"),
   accountHolder: z.string().min(1, "Tên chủ tài khoản là bắt buộc"),
-  apiKey: z.string().min(1, "SePay API Key là bắt buộc"),
+  apiKey: z.string().optional(),
   webhookSecret: z.string().optional(),
   isActive: z.boolean().default(true),
 });
@@ -51,16 +51,27 @@ export default function SettingsPayments() {
         bankName: config.bankName || "",
         accountNumber: config.accountNumber || "",
         accountHolder: config.accountHolder || "",
-        apiKey: config.apiKey || "",
-        webhookSecret: config.webhookSecret || "",
+        apiKey: "",
+        webhookSecret: "",
         isActive: config.isActive,
       });
     }
   }, [config, form]);
 
+  const isMasked = (val: string) => /^\*+$/.test(val.trim());
+
   const onSubmit = (data: PaymentFormValues) => {
+    const payload: Record<string, unknown> = {
+      bankName: data.bankName,
+      accountNumber: data.accountNumber,
+      accountHolder: data.accountHolder,
+      isActive: data.isActive,
+    };
+    if (data.apiKey && !isMasked(data.apiKey)) payload.apiKey = data.apiKey;
+    if (data.webhookSecret && !isMasked(data.webhookSecret)) payload.webhookSecret = data.webhookSecret;
+
     saveConfig.mutate(
-      { data },
+      { data: payload as Parameters<typeof saveConfig.mutate>[0]['data'] },
       {
         onSuccess: () => {
           toast({ title: "Đã lưu cấu hình thanh toán" });
@@ -144,9 +155,9 @@ export default function SettingsPayments() {
                 name="apiKey"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>SePay API Key</FormLabel>
+                    <FormLabel>SePay API Key {config?.apiKey && <span className="text-xs text-muted-foreground font-normal ml-1">(để trống = giữ nguyên)</span>}</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="Key lấy từ sepay.vn" {...field} />
+                      <Input type="password" placeholder={config?.apiKey ? "Để trống để giữ nguyên key hiện tại" : "Key lấy từ sepay.vn"} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -158,9 +169,9 @@ export default function SettingsPayments() {
                 name="webhookSecret"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Webhook Secret (Tùy chọn)</FormLabel>
+                    <FormLabel>Webhook Secret (Tùy chọn) {config?.webhookSecret && <span className="text-xs text-muted-foreground font-normal ml-1">(để trống = giữ nguyên)</span>}</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="Bảo mật webhook" {...field} />
+                      <Input type="password" placeholder={config?.webhookSecret ? "Để trống để giữ nguyên secret hiện tại" : "Bảo mật webhook"} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
