@@ -531,6 +531,10 @@ export type ListOrdersParams = {
   limit?: number;
   status?: string;
   customerId?: number;
+  /**
+   * When true, only return orders with retry_count > 0.
+   */
+  hasRetries?: boolean;
 };
 
 export type GetRestockQueue200 = {

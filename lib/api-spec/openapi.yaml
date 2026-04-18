@@ -445,6 +445,11 @@ paths:
           in: query
           schema:
             type: integer
+        - name: hasRetries
+          in: query
+          description: When true, only return orders with retry_count > 0.
+          schema:
+            type: boolean
       responses:
         "200":
           description: Order list

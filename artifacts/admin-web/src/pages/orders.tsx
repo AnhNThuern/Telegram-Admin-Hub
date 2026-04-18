@@ -47,6 +47,7 @@ function formatRelativeTime(iso: string | null | undefined): string {
 export default function Orders() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string>("all");
+  const [hasRetries, setHasRetries] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -58,6 +59,7 @@ export default function Orders() {
     page,
     limit: 10,
     status: status !== "all" ? status : undefined,
+    hasRetries: hasRetries ? true : undefined,
   });
 
   const { mutate: triggerSweep, isPending: sweepPending } = useTriggerRetrySweep({
@@ -174,6 +176,18 @@ export default function Orders() {
             <SelectItem value="expired">Hết hạn</SelectItem>
           </SelectContent>
         </Select>
+
+        <Button
+          type="button"
+          variant={hasRetries ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setHasRetries((v) => !v); setPage(1); }}
+          data-testid="btn-filter-has-retries"
+          title="Chỉ hiện đơn đã thử lại"
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          {hasRetries ? "Đang lọc: Đã thử lại" : "Chỉ đơn đã thử lại"}
+        </Button>
       </div>
 
       <Card>

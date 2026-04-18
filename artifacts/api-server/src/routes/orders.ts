@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, count, sql, or, inArray } from "drizzle-orm";
+import { eq, and, desc, count, sql, or, inArray, gt } from "drizzle-orm";
 import { db, ordersTable, orderItemsTable, customersTable, transactionsTable, botLogsTable, promotionsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateParams, validateQuery } from "../middlewares/validate";
@@ -12,12 +12,13 @@ import type z from "zod";
 const router: IRouter = Router();
 
 router.get("/orders", requireAuth, validateQuery(ListOrdersQueryParams), async (req, res): Promise<void> => {
-  const { page, limit, status, customerId } = res.locals["query"] as z.infer<typeof ListOrdersQueryParams>;
+  const { page, limit, status, customerId, hasRetries } = res.locals["query"] as z.infer<typeof ListOrdersQueryParams>;
   const offset = (page - 1) * limit;
 
   const conditions = [];
   if (status) conditions.push(eq(ordersTable.status, status));
   if (customerId) conditions.push(eq(ordersTable.customerId, customerId));
+  if (hasRetries) conditions.push(gt(ordersTable.retryCount, 0));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [totalRow] = await db.select({ count: count() }).from(ordersTable).where(where);

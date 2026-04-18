@@ -345,6 +345,10 @@ export const ListOrdersQueryParams = zod.object({
   limit: zod.coerce.number().default(listOrdersQueryLimitDefault),
   status: zod.coerce.string().optional(),
   customerId: zod.coerce.number().optional(),
+  hasRetries: zod.coerce
+    .boolean()
+    .optional()
+    .describe("When true, only return orders with retry_count > 0."),
 });
 
 export const ListOrdersResponse = zod.object({
