@@ -5,17 +5,27 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Eye } from "lucide-react";
 import { Link } from "wouter";
+
+type SortMode = "latest" | "top_spent" | "top_balance";
 
 export default function Customers() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortMode>("latest");
   
   const { data: customerList, isLoading } = useListCustomers({
     page,
     limit: 10,
     search: search || undefined,
+  });
+
+  const sortedData = [...(customerList?.data ?? [])].sort((a, b) => {
+    if (sort === "top_spent") return parseFloat(b.totalSpent) - parseFloat(a.totalSpent);
+    if (sort === "top_balance") return parseFloat(b.balance) - parseFloat(a.balance);
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
   return (
@@ -27,14 +37,24 @@ export default function Customers() {
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 flex-wrap">
         <Input 
           placeholder="Tìm kiếm theo tên, username, chat ID..." 
-          className="max-w-md" 
+          className="max-w-sm" 
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           data-testid="input-search-customers"
         />
+        <Select value={sort} onValueChange={(v) => setSort(v as SortMode)}>
+          <SelectTrigger className="w-[180px]" data-testid="select-customers-sort">
+            <SelectValue placeholder="Sắp xếp" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="latest">Mới nhất</SelectItem>
+            <SelectItem value="top_spent">Chi tiêu nhiều nhất</SelectItem>
+            <SelectItem value="top_balance">Số dư cao nhất</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Card>
@@ -52,12 +72,13 @@ export default function Customers() {
                   <TableHead>Chat ID</TableHead>
                   <TableHead>Số dư</TableHead>
                   <TableHead>Tổng chi</TableHead>
+                  <TableHead>Tham gia</TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {customerList?.data?.map((customer) => (
+                {sortedData.map((customer) => (
                   <TableRow key={customer.id} data-testid={`row-customer-${customer.id}`}>
                     <TableCell className="font-mono text-xs">{customer.id}</TableCell>
                     <TableCell>
@@ -69,6 +90,7 @@ export default function Customers() {
                     <TableCell className="font-mono text-xs text-muted-foreground">{customer.chatId}</TableCell>
                     <TableCell className="font-bold text-primary">{formatVND(customer.balance)}</TableCell>
                     <TableCell className="text-muted-foreground">{formatVND(customer.totalSpent)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{formatDate(customer.createdAt)}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
                         customer.isActive ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"
@@ -85,9 +107,9 @@ export default function Customers() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {customerList?.data?.length === 0 && (
+                {sortedData.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                       Không tìm thấy khách hàng nào.
                     </TableCell>
                   </TableRow>
@@ -103,14 +125,16 @@ export default function Customers() {
           variant="outline" 
           onClick={() => setPage(p => Math.max(1, p - 1))}
           disabled={page === 1}
+          data-testid="btn-prev-page"
         >
           Trang trước
         </Button>
-        <span className="text-sm text-muted-foreground">Trang {page}</span>
+        <span className="text-sm text-muted-foreground">Trang {page} {customerList?.total ? `• ${customerList.total} khách hàng` : ""}</span>
         <Button 
           variant="outline" 
           onClick={() => setPage(p => p + 1)}
           disabled={!customerList || customerList.data.length < 10}
+          data-testid="btn-next-page"
         >
           Trang sau
         </Button>

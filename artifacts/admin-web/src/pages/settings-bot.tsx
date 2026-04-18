@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Bot, Unplug, Plug, Activity, Eye, EyeOff } from "lucide-react";
+import { Loader2, Bot, Unplug, Plug, Activity, Eye, EyeOff, Play, Square } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -216,25 +216,37 @@ export default function SettingsBot() {
               </ol>
             </div>
           </CardContent>
-          <CardFooter className="flex gap-2">
-            <Button 
-              className="flex-1" 
-              onClick={handleSetWebhook} 
-              disabled={setWebhook.isPending || !config?.botToken}
-              data-testid="btn-set-webhook"
-            >
-              {setWebhook.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plug className="mr-2 h-4 w-4" />}
-              Bật Webhook
-            </Button>
+          <CardFooter className="flex flex-col gap-2">
+            <div className="flex gap-2 w-full">
+              <Button 
+                className="flex-1" 
+                onClick={handleSetWebhook} 
+                disabled={setWebhook.isPending || !config?.botToken}
+                data-testid="btn-start-bot"
+              >
+                {setWebhook.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                Khởi động Bot
+              </Button>
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={handleSetWebhook} 
+                disabled={setWebhook.isPending || !config?.botToken}
+                data-testid="btn-set-webhook"
+              >
+                {setWebhook.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plug className="mr-2 h-4 w-4" />}
+                Cập nhật Webhook
+              </Button>
+            </div>
             <Button 
               variant="destructive" 
-              className="flex-1" 
+              className="w-full" 
               onClick={handleDisconnect} 
               disabled={disconnectBot.isPending || !config?.isConnected}
-              data-testid="btn-disconnect-bot"
+              data-testid="btn-stop-bot"
             >
-              {disconnectBot.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unplug className="mr-2 h-4 w-4" />}
-              Ngắt kết nối
+              {disconnectBot.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Square className="mr-2 h-4 w-4" />}
+              Dừng Bot / Ngắt kết nối
             </Button>
           </CardFooter>
         </Card>

@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,6 +14,26 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Textarea } from "@/components/ui/textarea";
+
+const PROMOTION_TYPES = [
+  { value: "percentage", label: "Giảm theo % (percentage)" },
+  { value: "fixed", label: "Giảm số tiền cố định (fixed)" },
+  { value: "buy_x_get_y", label: "Mua X tặng Y (buy-X-get-Y)" },
+  { value: "percent_by_qty", label: "Giảm % theo số lượng (percent-by-qty)" },
+  { value: "topup", label: "Nạp tiền ưu đãi (topup)" },
+  { value: "tiered", label: "Theo bậc (tiered)" },
+];
+
+const getTiersPlaceholder = (type: string) => {
+  switch (type) {
+    case "buy_x_get_y": return '{"buy": 2, "get": 1}';
+    case "percent_by_qty": return '{"1": 0, "3": 10, "5": 20}';
+    case "topup": return '{"10000": 11000, "50000": 57000, "100000": 120000}';
+    case "tiered": return '{"100000": 5, "500000": 10, "1000000": 15}';
+    default: return '{}';
+  }
+};
 
 const promotionSchema = z.object({
   name: z.string().min(1, "Tên khuyến mãi là bắt buộc"),
@@ -24,15 +44,19 @@ const promotionSchema = z.object({
   priority: z.string().default("0"),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
+  tiersJson: z.string().optional(),
   isActive: z.boolean().default(true),
 });
 
 type PromotionFormValues = z.infer<typeof promotionSchema>;
 
+const TIERS_REQUIRED_TYPES = ["buy_x_get_y", "percent_by_qty", "topup", "tiered"];
+
 export default function Promotions() {
   const { data: promotionList, isLoading } = useListPromotions();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [showTiers, setShowTiers] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -51,11 +75,25 @@ export default function Promotions() {
       priority: "0",
       startDate: "",
       endDate: "",
+      tiersJson: "",
       isActive: true,
     },
   });
 
+  const watchedType = form.watch("type");
+  const needsTiers = TIERS_REQUIRED_TYPES.includes(watchedType);
+
+  const parseTiers = (json: string | undefined): Record<string, unknown> | undefined => {
+    if (!json || !json.trim()) return undefined;
+    try { return JSON.parse(json); } catch { return undefined; }
+  };
+
   const onSubmit = (data: PromotionFormValues) => {
+    const tiers = parseTiers(data.tiersJson);
+    if (needsTiers && !tiers) {
+      toast({ variant: "destructive", title: "Lỗi", description: "JSON cấu hình bậc không hợp lệ" });
+      return;
+    }
     const payload = {
       name: data.name,
       description: data.description || undefined,
@@ -66,6 +104,7 @@ export default function Promotions() {
       startDate: data.startDate || undefined,
       endDate: data.endDate || undefined,
       isActive: data.isActive,
+      tiers: tiers,
     };
     if (editingId) {
       updatePromotion.mutate(
@@ -96,6 +135,7 @@ export default function Promotions() {
 
   const handleEdit = (promo: Promotion) => {
     setEditingId(promo.id);
+    const tiersStr = promo.tiers ? JSON.stringify(promo.tiers, null, 2) : "";
     form.reset({
       name: promo.name,
       description: promo.description || "",
@@ -105,8 +145,10 @@ export default function Promotions() {
       priority: String(promo.priority ?? 0),
       startDate: promo.startDate ?? "",
       endDate: promo.endDate ?? "",
+      tiersJson: tiersStr,
       isActive: promo.isActive,
     });
+    setShowTiers(!!tiersStr);
     setIsAddOpen(true);
   };
 
@@ -128,11 +170,11 @@ export default function Promotions() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Khuyến mãi</h1>
-          <p className="text-muted-foreground mt-1">Quản lý mã giảm giá và chương trình khuyến mãi.</p>
+          <p className="text-muted-foreground mt-1">Quản lý chương trình khuyến mãi và giảm giá.</p>
         </div>
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => { setEditingId(null); form.reset(); }} data-testid="btn-add-promotion">
+            <Button onClick={() => { setEditingId(null); form.reset(); setShowTiers(false); }} data-testid="btn-add-promotion">
               <Plus className="h-4 w-4 mr-2" /> Thêm khuyến mãi
             </Button>
           </DialogTrigger>
@@ -149,7 +191,7 @@ export default function Promotions() {
                     <FormItem>
                       <FormLabel>Tên khuyến mãi *</FormLabel>
                       <FormControl>
-                        <Input placeholder="VD: Giảm 10% khách mới" {...field} data-testid="input-promo-name" />
+                        <Input placeholder="VD: Mua 2 tặng 1 tháng 5" {...field} data-testid="input-promo-name" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -162,67 +204,88 @@ export default function Promotions() {
                     <FormItem>
                       <FormLabel>Mô tả</FormLabel>
                       <FormControl>
-                        <Input placeholder="Mô tả ngắn về chương trình..." {...field} />
+                        <Input placeholder="Mô tả ngắn..." {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="type"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Loại giảm *</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Chọn loại" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="percentage">Phần trăm (%)</SelectItem>
-                            <SelectItem value="fixed">Tiền cố định (₫)</SelectItem>
-                            <SelectItem value="tiered">Theo bậc</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="priority"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Ưu tiên</FormLabel>
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Loại khuyến mãi *</FormLabel>
+                      <Select onValueChange={(v) => { field.onChange(v); if (TIERS_REQUIRED_TYPES.includes(v)) setShowTiers(true); }} value={field.value}>
                         <FormControl>
-                          <Input type="number" min="0" placeholder="0" {...field} />
+                          <SelectTrigger data-testid="select-promo-type">
+                            <SelectValue placeholder="Chọn loại" />
+                          </SelectTrigger>
                         </FormControl>
-                        <FormDescription className="text-xs">Số cao hơn = ưu tiên cao hơn</FormDescription>
+                        <SelectContent>
+                          {PROMOTION_TYPES.map(t => (
+                            <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {(needsTiers || showTiers) && (
+                  <FormField
+                    control={form.control}
+                    name="tiersJson"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          Cấu hình bậc (JSON) {needsTiers && <span className="text-destructive">*</span>}
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder={getTiersPlaceholder(watchedType)}
+                            className="font-mono text-xs h-24 resize-none"
+                            {...field}
+                            data-testid="input-promo-tiers"
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          {watchedType === "buy_x_get_y" && 'Ví dụ: {"buy": 2, "get": 1} — mua 2 tặng 1'}
+                          {watchedType === "percent_by_qty" && 'Ví dụ: {"3": 10, "5": 20} — mua 3+ giảm 10%, mua 5+ giảm 20%'}
+                          {watchedType === "topup" && 'Ví dụ: {"50000": 57000} — nạp 50k nhận 57k'}
+                          {watchedType === "tiered" && 'Ví dụ: {"100000": 5, "500000": 10} — đơn 100k giảm 5%'}
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                </div>
+                )}
+
+                {!needsTiers && (
+                  <Button type="button" variant="ghost" size="sm" className="text-muted-foreground -mt-2" onClick={() => setShowTiers(v => !v)}>
+                    {showTiers ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                    {showTiers ? "Ẩn cấu hình bậc" : "Thêm cấu hình bậc (tùy chọn)"}
+                  </Button>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="appliesTo"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Phạm vi áp dụng</FormLabel>
+                        <FormLabel>Phạm vi</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Chọn phạm vi" />
+                              <SelectValue />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="all">Tất cả sản phẩm</SelectItem>
+                            <SelectItem value="all">Tất cả SP</SelectItem>
                             <SelectItem value="category">Theo danh mục</SelectItem>
-                            <SelectItem value="product">Theo sản phẩm</SelectItem>
+                            <SelectItem value="product">Theo SP</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -234,17 +297,17 @@ export default function Promotions() {
                     name="customerTarget"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Đối tượng khách</FormLabel>
+                        <FormLabel>Đối tượng</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Chọn đối tượng" />
+                              <SelectValue />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
                             <SelectItem value="all">Tất cả</SelectItem>
-                            <SelectItem value="new">Khách hàng mới</SelectItem>
-                            <SelectItem value="existing">Khách hàng cũ</SelectItem>
+                            <SelectItem value="new">KH mới</SelectItem>
+                            <SelectItem value="existing">KH cũ</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -252,13 +315,26 @@ export default function Promotions() {
                     )}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="priority"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Ưu tiên</FormLabel>
+                        <FormControl>
+                          <Input type="number" min="0" placeholder="0" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                   <FormField
                     control={form.control}
                     name="startDate"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Ngày bắt đầu</FormLabel>
+                        <FormLabel>Bắt đầu</FormLabel>
                         <FormControl>
                           <Input type="date" {...field} />
                         </FormControl>
@@ -271,7 +347,7 @@ export default function Promotions() {
                     name="endDate"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Ngày kết thúc</FormLabel>
+                        <FormLabel>Kết thúc</FormLabel>
                         <FormControl>
                           <Input type="date" {...field} data-testid="input-promo-enddate" />
                         </FormControl>
@@ -304,6 +380,7 @@ export default function Promotions() {
                   <TableHead>Loại</TableHead>
                   <TableHead>Phạm vi</TableHead>
                   <TableHead>Đối tượng</TableHead>
+                  <TableHead>Bậc</TableHead>
                   <TableHead>Hết hạn</TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
@@ -319,14 +396,17 @@ export default function Promotions() {
                       </div>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {promo.type === 'percentage' ? 'Phần trăm' : promo.type === 'fixed' ? 'Cố định' : 'Theo bậc'}
+                      {PROMOTION_TYPES.find(t => t.value === promo.type)?.label?.split(" (")[0] ?? promo.type}
                     </TableCell>
                     <TableCell className="text-sm">{promo.appliesTo === 'all' ? 'Tất cả' : promo.appliesTo}</TableCell>
                     <TableCell className="text-sm">{
                       promo.customerTarget === 'new' ? 'KH mới' :
                       promo.customerTarget === 'existing' ? 'KH cũ' : 'Tất cả'
                     }</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{promo.endDate ? formatDate(promo.endDate) : "Không giới hạn"}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[80px] truncate" title={promo.tiers ? JSON.stringify(promo.tiers) : undefined}>
+                      {promo.tiers ? "✓" : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{promo.endDate ? formatDate(promo.endDate) : "∞"}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${promo.isActive ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"}`}>
                         {promo.isActive ? "Đang chạy" : "Tạm dừng"}
@@ -346,7 +426,7 @@ export default function Promotions() {
                 ))}
                 {promotionList?.data?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                       Không có khuyến mãi nào.
                     </TableCell>
                   </TableRow>

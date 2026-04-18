@@ -339,6 +339,26 @@ export default function Products() {
           )}
         </CardContent>
       </Card>
+
+      <div className="flex justify-between items-center mt-4">
+        <Button
+          variant="outline"
+          onClick={() => setPage(p => Math.max(1, p - 1))}
+          disabled={page === 1}
+          data-testid="btn-prev-page"
+        >
+          Trang trước
+        </Button>
+        <span className="text-sm text-muted-foreground">Trang {page} {productList?.total ? `• ${productList.total} sản phẩm` : ""}</span>
+        <Button
+          variant="outline"
+          onClick={() => setPage(p => p + 1)}
+          disabled={!productList || productList.data.length < 10}
+          data-testid="btn-next-page"
+        >
+          Trang sau
+        </Button>
+      </div>
     </div>
   );
 }
