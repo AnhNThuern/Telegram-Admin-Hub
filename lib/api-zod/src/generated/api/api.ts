@@ -812,7 +812,7 @@ export const GetBotConfigResponse = zod.object({
  */
 export const SaveBotConfigBody = zod.object({
   botToken: zod.string(),
-  adminChatId: zod.string().nullish(),
+  adminChatId: zod.string().regex(/^-?\d+$/, "Chat ID must be a numeric Telegram ID").nullish(),
 });
 
 export const SaveBotConfigResponse = zod.object({

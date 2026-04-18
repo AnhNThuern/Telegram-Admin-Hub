@@ -13,7 +13,12 @@ import { z } from "zod";
 
 const botSchema = z.object({
   botToken: z.string().min(1, "Bot token là bắt buộc"),
-  adminChatId: z.string().optional(),
+  adminChatId: z.string()
+    .optional()
+    .refine(
+      (v) => !v || /^-?\d+$/.test(v),
+      "Chat ID chỉ gồm chữ số (có thể bắt đầu bằng dấu - cho nhóm/channel)"
+    ),
 });
 
 type BotFormValues = z.infer<typeof botSchema>;
