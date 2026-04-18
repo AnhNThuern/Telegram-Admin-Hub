@@ -194,6 +194,8 @@ export interface Order {
   paidAt?: string | null;
   deliveredAt?: string | null;
   notes?: string | null;
+  retryCount?: number;
+  retryExhaustedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

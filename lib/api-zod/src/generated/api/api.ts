@@ -359,6 +359,8 @@ export const ListOrdersResponse = zod.object({
       paidAt: zod.coerce.date().nullish(),
       deliveredAt: zod.coerce.date().nullish(),
       notes: zod.string().nullish(),
+      retryCount: zod.number().default(0),
+      retryExhaustedAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     }),
@@ -385,6 +387,8 @@ export const GetOrderResponse = zod.object({
   paidAt: zod.coerce.date().nullish(),
   deliveredAt: zod.coerce.date().nullish(),
   notes: zod.string().nullish(),
+  retryCount: zod.number().default(0),
+  retryExhaustedAt: zod.coerce.date().nullish(),
   customer: zod
     .object({
       id: zod.number(),

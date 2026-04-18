@@ -8,6 +8,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Eye } from "lucide-react";
 import { Link } from "wouter";
 
+const STATUS_LABELS: Record<string, string> = {
+  paid: "Đã thanh toán",
+  pending: "Chờ thanh toán",
+  cancelled: "Đã hủy",
+  expired: "Hết hạn",
+  needs_manual_action: "Cần xử lý",
+  confirmed_not_delivered: "Chờ giao",
+  retry_exhausted: "Hết lượt thử",
+};
+
+const STATUS_STYLES: Record<string, string> = {
+  paid: "bg-emerald-500/10 text-emerald-500",
+  pending: "bg-yellow-500/10 text-yellow-500",
+  cancelled: "bg-destructive/10 text-destructive",
+  expired: "bg-destructive/10 text-destructive",
+  needs_manual_action: "bg-orange-500/10 text-orange-500",
+  confirmed_not_delivered: "bg-blue-500/10 text-blue-400",
+  retry_exhausted: "bg-red-700/20 text-red-400",
+};
+
 export default function Orders() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string>("all");
@@ -28,14 +48,17 @@ export default function Orders() {
       </div>
 
       <div className="flex items-center gap-4">
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-[180px]">
+        <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
+          <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Tất cả trạng thái" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tất cả trạng thái</SelectItem>
             <SelectItem value="pending">Chờ thanh toán</SelectItem>
             <SelectItem value="paid">Đã thanh toán</SelectItem>
+            <SelectItem value="needs_manual_action">Cần xử lý</SelectItem>
+            <SelectItem value="confirmed_not_delivered">Chờ giao</SelectItem>
+            <SelectItem value="retry_exhausted">Hết lượt thử</SelectItem>
             <SelectItem value="cancelled">Đã hủy</SelectItem>
             <SelectItem value="expired">Hết hạn</SelectItem>
           </SelectContent>
@@ -56,6 +79,7 @@ export default function Orders() {
                   <TableHead>Khách hàng (ID)</TableHead>
                   <TableHead>Tổng tiền</TableHead>
                   <TableHead>Trạng thái</TableHead>
+                  <TableHead>Lần thử</TableHead>
                   <TableHead>Thời gian tạo</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
                 </TableRow>
@@ -67,13 +91,16 @@ export default function Orders() {
                     <TableCell className="font-mono text-xs text-muted-foreground">{order.customerId}</TableCell>
                     <TableCell className="font-bold text-primary">{formatVND(order.totalAmount)}</TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        order.status === 'paid' ? "bg-emerald-500/10 text-emerald-500" : 
-                        order.status === 'pending' ? "bg-yellow-500/10 text-yellow-500" : 
-                        "bg-destructive/10 text-destructive"
-                      }`}>
-                        {order.status === 'paid' ? "Đã thanh toán" : order.status === 'pending' ? "Chờ thanh toán" : order.status === 'cancelled' ? "Đã hủy" : "Hết hạn"}
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[order.status as string] ?? "bg-muted/50 text-muted-foreground"}`}>
+                        {STATUS_LABELS[order.status as string] ?? order.status}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-center text-sm text-muted-foreground">
+                      {(order.retryCount ?? 0) > 0 ? (
+                        <span className={`font-mono ${(order.retryCount ?? 0) >= 8 ? "text-orange-400" : ""}`}>
+                          {order.retryCount}
+                        </span>
+                      ) : "—"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{formatDate(order.createdAt)}</TableCell>
                     <TableCell className="text-right">
@@ -87,7 +114,7 @@ export default function Orders() {
                 ))}
                 {orderList?.data?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       Không tìm thấy đơn hàng nào.
                     </TableCell>
                   </TableRow>

@@ -13,6 +13,8 @@ export const ordersTable = pgTable("orders", {
   paidAt: timestamp("paid_at", { withTimezone: true }),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   notes: text("notes"),
+  retryCount: integer("retry_count").notNull().default(0),
+  retryExhaustedAt: timestamp("retry_exhausted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

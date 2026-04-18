@@ -187,6 +187,14 @@ async function retryStuckOrdersForProduct(productId: number): Promise<void> {
 
       const success = await deliverOrder(orderId);
 
+      if (!success) {
+        // Increment retry count so the sweep can eventually exhaust this order
+        await db
+          .update(ordersTable)
+          .set({ retryCount: sql`${ordersTable.retryCount} + 1` })
+          .where(eq(ordersTable.id, orderId));
+      }
+
       await db.insert(botLogsTable).values({
         action: success ? "restock_retry_delivered" : "restock_retry_failed",
         content: `Restock retry for order ${orderCode} (id=${orderId}): ${success ? "delivered" : "failed"}`,
