@@ -7,6 +7,7 @@ export const botConfigsTable = pgTable("bot_configs", {
   botToken: text("bot_token"),
   botUsername: text("bot_username"),
   webhookUrl: text("webhook_url"),
+  webhookSecretToken: text("webhook_secret_token"),
   isConnected: boolean("is_connected").notNull().default(false),
   webhookStatus: text("webhook_status").default("not_set"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

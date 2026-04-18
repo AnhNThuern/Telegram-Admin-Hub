@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
+import { randomBytes } from "crypto";
 import { db, botConfigsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/auth";
@@ -48,7 +49,7 @@ router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (
   let config;
   if (existing) {
     const [c] = await db.update(botConfigsTable)
-      .set({ botToken, isConnected: false, webhookStatus: "not_set", botUsername: null, webhookUrl: null })
+      .set({ botToken, isConnected: false, webhookStatus: "not_set", botUsername: null, webhookUrl: null, webhookSecretToken: null })
       .where(eq(botConfigsTable.id, existing.id))
       .returning();
     config = c;
@@ -105,17 +106,20 @@ router.post("/bot/set-webhook", requireAuth, async (_req, res): Promise<void> =>
     return;
   }
 
+  // Generate a new random secret token for Telegram webhook verification
+  const secretToken = randomBytes(32).toString("hex");
+
   try {
     const response = await fetch(`https://api.telegram.org/bot${config.botToken}/setWebhook`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: webhookUrl }),
+      body: JSON.stringify({ url: webhookUrl, secret_token: secretToken }),
     });
     const data = await response.json() as { ok: boolean; description?: string };
 
     if (data.ok) {
       await db.update(botConfigsTable)
-        .set({ webhookUrl, webhookStatus: "active", isConnected: true })
+        .set({ webhookUrl, webhookStatus: "active", isConnected: true, webhookSecretToken: secretToken })
         .where(eq(botConfigsTable.id, config.id));
       res.json({ message: "Webhook set successfully", webhookUrl });
     } else {
@@ -143,18 +147,28 @@ router.post("/bot/disconnect", requireAuth, async (_req, res): Promise<void> => 
   }
 
   await db.update(botConfigsTable)
-    .set({ isConnected: false, webhookStatus: "not_set", webhookUrl: null })
+    .set({ isConnected: false, webhookStatus: "not_set", webhookUrl: null, webhookSecretToken: null })
     .where(eq(botConfigsTable.id, config.id));
   res.json({ message: "Bot disconnected" });
 });
 
 /**
- * Telegram webhook endpoint — publicly accessible by Telegram servers.
- * Auth is enforced via the X-Telegram-Bot-Api-Secret-Token header, which
- * Telegram sends only if configured on setWebhook (Task #3 scope).
- * Unknown/unauthenticated payloads are silently dropped to prevent enumeration.
+ * Telegram webhook endpoint — publicly accessible by Telegram servers only.
+ * Security: Telegram sends X-Telegram-Bot-Api-Secret-Token on every request.
+ * We verify this against the stored webhookSecretToken generated during setWebhook.
+ * Requests without a valid secret are rejected with 401.
  */
 router.post("/bot/webhook", validateBody(HandleBotWebhookBody), async (req, res): Promise<void> => {
+  // Verify the request originated from Telegram using the shared secret token
+  const providedSecret = req.headers["x-telegram-bot-api-secret-token"];
+  const config = await getConfig();
+
+  if (!config?.webhookSecretToken || !providedSecret || providedSecret !== config.webhookSecretToken) {
+    logger.warn({ ip: req.ip }, "Rejected unauthenticated Telegram webhook request");
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
   try {
     const { handleTelegramUpdate } = await import("../lib/bot");
     await handleTelegramUpdate(req.body);
