@@ -1,12 +1,13 @@
-import { useListOrders } from "@workspace/api-client-react";
+import { useListOrders, useTriggerRetrySweep, ApiError } from "@workspace/api-client-react";
 import { useState } from "react";
 import { formatVND, formatDate } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Eye } from "lucide-react";
+import { Loader2, Eye, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 
 const STATUS_LABELS: Record<string, string> = {
   paid: "Đã thanh toán",
@@ -31,11 +32,56 @@ const STATUS_STYLES: Record<string, string> = {
 export default function Orders() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string>("all");
-  
+  const { toast } = useToast();
+
   const { data: orderList, isLoading } = useListOrders({
     page,
     limit: 10,
     status: status !== "all" ? status : undefined,
+  });
+
+  const { mutate: triggerSweep, isPending: sweepPending } = useTriggerRetrySweep({
+    mutation: {
+      onSuccess: (result) => {
+        if (result.alreadyRunning) {
+          toast({
+            title: "Quét đang chạy",
+            description: "Lần quét trước vẫn đang chạy, hãy thử lại sau.",
+            variant: "destructive",
+          });
+          return;
+        }
+        const parts: string[] = [];
+        if (result.swept === 0) {
+          parts.push("Không có đơn hàng bị kẹt nào để thử lại.");
+        } else {
+          parts.push(`Đã quét ${result.swept} đơn hàng.`);
+          if (result.delivered > 0) parts.push(`✅ Giao thành công: ${result.delivered}`);
+          if (result.failed > 0) parts.push(`❌ Thất bại: ${result.failed}`);
+          if (result.errored > 0) parts.push(`⚠️ Lỗi: ${result.errored}`);
+          if (result.exhausted > 0) parts.push(`🚫 Hết lượt: ${result.exhausted}`);
+        }
+        toast({
+          title: "Quét hoàn tất",
+          description: parts.join(" "),
+        });
+      },
+      onError: (error) => {
+        if (error instanceof ApiError && error.status === 409) {
+          toast({
+            title: "Quét đang chạy",
+            description: "Lần quét trước vẫn đang chạy, hãy thử lại sau.",
+            variant: "destructive",
+          });
+          return;
+        }
+        toast({
+          title: "Lỗi",
+          description: "Không thể kích hoạt quét. Vui lòng thử lại.",
+          variant: "destructive",
+        });
+      },
+    },
   });
 
   return (
@@ -45,6 +91,18 @@ export default function Orders() {
           <h1 className="text-3xl font-bold tracking-tight">Đơn hàng</h1>
           <p className="text-muted-foreground mt-1">Quản lý tất cả đơn hàng từ Telegram.</p>
         </div>
+        <Button
+          onClick={() => triggerSweep()}
+          disabled={sweepPending}
+          data-testid="btn-retry-sweep"
+        >
+          {sweepPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-2 h-4 w-4" />
+          )}
+          Thử lại ngay
+        </Button>
       </div>
 
       <div className="flex items-center gap-4">

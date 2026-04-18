@@ -478,6 +478,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /admin/retry-sweep:
+    post:
+      operationId: triggerRetrySweep
+      tags: [orders]
+      summary: Trigger a stuck-order retry sweep immediately
+      responses:
+        "200":
+          description: Sweep result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetrySweepResult"
+        "409":
+          description: Sweep already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetrySweepResult"
+
   # ─── Transactions ─────────────────────────────────────────────────────────────
   /transactions:
     get:
@@ -1020,6 +1039,29 @@ components:
       required:
         - message
 
+    RetrySweepResult:
+      type: object
+      properties:
+        alreadyRunning:
+          type: boolean
+        swept:
+          type: integer
+        delivered:
+          type: integer
+        failed:
+          type: integer
+        errored:
+          type: integer
+        exhausted:
+          type: integer
+      required:
+        - alreadyRunning
+        - swept
+        - delivered
+        - failed
+        - errored
+        - exhausted
+
     LoginRequest:
       type: object
       properties:
@@ -1392,6 +1434,13 @@ components:
           type: string
         status:
           type: string
+        retryCount:
+          type: integer
+          nullable: true
+        retryExhaustedAt:
+          type: string
+          format: date-time
+          nullable: true
         paymentReference:
           type: string
           nullable: true
@@ -1878,6 +1927,9 @@ components:
         webhookStatus:
           type: string
           nullable: true
+        adminChatId:
+          type: string
+          nullable: true
         updatedAt:
           type: string
           format: date-time
@@ -1890,6 +1942,9 @@ components:
       properties:
         botToken:
           type: string
+        adminChatId:
+          type: string
+          nullable: true
       required:
         - botToken
 
@@ -1977,6 +2032,9 @@ components:
         bankName:
           type: string
           nullable: true
+        bankCode:
+          type: string
+          nullable: true
         accountNumber:
           type: string
           nullable: true
@@ -2003,6 +2061,8 @@ components:
       type: object
       properties:
         bankName:
+          type: string
+        bankCode:
           type: string
         accountNumber:
           type: string

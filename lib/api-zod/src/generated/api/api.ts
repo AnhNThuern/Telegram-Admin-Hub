@@ -355,12 +355,12 @@ export const ListOrdersResponse = zod.object({
       customerId: zod.number(),
       totalAmount: zod.string(),
       status: zod.string(),
+      retryCount: zod.number().nullish(),
+      retryExhaustedAt: zod.coerce.date().nullish(),
       paymentReference: zod.string().nullish(),
       paidAt: zod.coerce.date().nullish(),
       deliveredAt: zod.coerce.date().nullish(),
       notes: zod.string().nullish(),
-      retryCount: zod.number().default(0),
-      retryExhaustedAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     }),
@@ -387,8 +387,6 @@ export const GetOrderResponse = zod.object({
   paidAt: zod.coerce.date().nullish(),
   deliveredAt: zod.coerce.date().nullish(),
   notes: zod.string().nullish(),
-  retryCount: zod.number().default(0),
-  retryExhaustedAt: zod.coerce.date().nullish(),
   customer: zod
     .object({
       id: zod.number(),
@@ -429,14 +427,46 @@ export const GetOrderResponse = zod.object({
       status: zod.string(),
       provider: zod.string().nullish(),
       rawPayload: zod.string().nullish(),
-      notes: zod.string().nullish(),
       confirmedAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     })
     .nullish(),
+  retryCount: zod
+    .number()
+    .describe(
+      "Number of retry attempts made for this order (excludes the initial delivery attempt)",
+    ),
+  retryLogs: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        action: zod.string(),
+        customerId: zod.number().nullish(),
+        chatId: zod.string().nullish(),
+        content: zod.string().nullish(),
+        metadata: zod.unknown().nullish(),
+        level: zod.string(),
+        createdAt: zod.coerce.date(),
+      }),
+    )
+    .describe(
+      "Chronological log of delivery attempts and retry events for this order",
+    ),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Trigger a stuck-order retry sweep immediately
+ */
+export const TriggerRetrySweepResponse = zod.object({
+  alreadyRunning: zod.boolean(),
+  swept: zod.number(),
+  delivered: zod.number(),
+  failed: zod.number(),
+  errored: zod.number(),
+  exhausted: zod.number(),
 });
 
 /**
@@ -466,7 +496,6 @@ export const ListTransactionsResponse = zod.object({
       status: zod.string(),
       provider: zod.string().nullish(),
       rawPayload: zod.string().nullish(),
-      notes: zod.string().nullish(),
       confirmedAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
@@ -495,7 +524,6 @@ export const GetTransactionResponse = zod.object({
   status: zod.string(),
   provider: zod.string().nullish(),
   rawPayload: zod.string().nullish(),
-  notes: zod.string().nullish(),
   confirmedAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -580,6 +608,8 @@ export const GetCustomerOrdersResponse = zod.object({
       customerId: zod.number(),
       totalAmount: zod.string(),
       status: zod.string(),
+      retryCount: zod.number().nullish(),
+      retryExhaustedAt: zod.coerce.date().nullish(),
       paymentReference: zod.string().nullish(),
       paidAt: zod.coerce.date().nullish(),
       deliveredAt: zod.coerce.date().nullish(),
@@ -621,7 +651,6 @@ export const GetCustomerTransactionsResponse = zod.object({
       status: zod.string(),
       provider: zod.string().nullish(),
       rawPayload: zod.string().nullish(),
-      notes: zod.string().nullish(),
       confirmedAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
@@ -820,7 +849,7 @@ export const GetBotConfigResponse = zod.object({
  */
 export const SaveBotConfigBody = zod.object({
   botToken: zod.string(),
-  adminChatId: zod.string().regex(/^-?\d+$/, "Chat ID must be a numeric Telegram ID").nullish(),
+  adminChatId: zod.string().nullish(),
 });
 
 export const SaveBotConfigResponse = zod.object({

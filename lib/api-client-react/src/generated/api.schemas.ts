@@ -17,6 +17,15 @@ export interface MessageResponse {
   message: string;
 }
 
+export interface RetrySweepResult {
+  alreadyRunning: boolean;
+  swept: number;
+  delivered: number;
+  failed: number;
+  errored: number;
+  exhausted: number;
+}
+
 export interface LoginRequest {
   username: string;
   password: string;
@@ -190,12 +199,12 @@ export interface Order {
   customerId: number;
   totalAmount: string;
   status: string;
+  retryCount?: number | null;
+  retryExhaustedAt?: string | null;
   paymentReference?: string | null;
   paidAt?: string | null;
   deliveredAt?: string | null;
   notes?: string | null;
-  retryCount?: number;
-  retryExhaustedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -251,7 +260,9 @@ export interface OrderDetail {
   customer?: Customer | null;
   items: OrderItem[];
   transaction?: Transaction | null;
+  /** Number of retry attempts made for this order (excludes the initial delivery attempt) */
   retryCount: number;
+  /** Chronological log of delivery attempts and retry events for this order */
   retryLogs: RetryLog[];
   createdAt: string;
   updatedAt: string;

@@ -11,6 +11,7 @@ import promotionsRouter from "./promotions";
 import botRouter from "./bot";
 import botLogsRouter from "./bot_logs";
 import paymentsRouter from "./payments";
+import retrySweepRouter from "./retry_sweep";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(promotionsRouter);
 router.use(botRouter);
 router.use(botLogsRouter);
 router.use(paymentsRouter);
+router.use(retrySweepRouter);
 
 export default router;

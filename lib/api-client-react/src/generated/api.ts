@@ -53,6 +53,7 @@ import type {
   ProductListResponse,
   Promotion,
   PromotionList,
+  RetrySweepResult,
   SaveBotConfigRequest,
   SavePaymentConfigRequest,
   StockList,
@@ -1770,6 +1771,87 @@ export function useGetOrder<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Trigger a stuck-order retry sweep immediately
+ */
+export const getTriggerRetrySweepUrl = () => {
+  return `/api/admin/retry-sweep`;
+};
+
+export const triggerRetrySweep = async (
+  options?: RequestInit,
+): Promise<RetrySweepResult> => {
+  return customFetch<RetrySweepResult>(getTriggerRetrySweepUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getTriggerRetrySweepMutationOptions = <
+  TError = ErrorType<RetrySweepResult>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof triggerRetrySweep>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof triggerRetrySweep>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["triggerRetrySweep"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof triggerRetrySweep>>,
+    void
+  > = () => {
+    return triggerRetrySweep(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TriggerRetrySweepMutationResult = NonNullable<
+  Awaited<ReturnType<typeof triggerRetrySweep>>
+>;
+
+export type TriggerRetrySweepMutationError = ErrorType<RetrySweepResult>;
+
+/**
+ * @summary Trigger a stuck-order retry sweep immediately
+ */
+export const useTriggerRetrySweep = <
+  TError = ErrorType<RetrySweepResult>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof triggerRetrySweep>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof triggerRetrySweep>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getTriggerRetrySweepMutationOptions(options));
+};
 
 /**
  * @summary List transactions
