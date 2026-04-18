@@ -81,6 +81,15 @@ Vietnamese-language Telegram commerce admin system. Dark-themed admin web UI + R
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
+## Environment Variables (API Server)
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | *(required)* | PostgreSQL connection string |
+| `SESSION_SECRET` | *(required)* | Express session signing secret |
+| `ADMIN_BASE_URL` | auto-detected | Base URL for admin panel deep-links in Telegram alerts (e.g. `https://myapp.replit.app`) |
+| `RETRY_SWEEP_INTERVAL_MINUTES` | `20` | How often the stuck-order retry sweep runs (minutes). Minimum 1. Change without redeploying by updating the secret and restarting the server. |
+
 ## Admin Web UI (artifacts/admin-web)
 
 - **Framework**: React + Vite + Tailwind CSS + shadcn/ui + wouter + TanStack Query

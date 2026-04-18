@@ -3,7 +3,8 @@ import { or, eq, and, lt, sql } from "drizzle-orm";
 import { deliverOrder, sendAdminAlert } from "./bot";
 import { logger } from "./logger";
 
-const RETRY_INTERVAL_MS = 20 * 60 * 1000;
+const _sweepIntervalMinutes = Math.max(1, parseInt(process.env.RETRY_SWEEP_INTERVAL_MINUTES ?? "20", 10) || 20);
+const RETRY_INTERVAL_MS = _sweepIntervalMinutes * 60 * 1000;
 const MAX_RETRY_COUNT = 10;
 const MAX_ORDER_AGE_DAYS = 7;
 
@@ -228,7 +229,7 @@ export async function runStuckOrderRetrySweep(): Promise<void> {
 }
 
 export function startScheduledRetrySweep(): void {
-  logger.info({ intervalMs: RETRY_INTERVAL_MS, maxRetryCount: MAX_RETRY_COUNT, maxOrderAgeDays: MAX_ORDER_AGE_DAYS }, "Starting scheduled retry sweep");
+  logger.info({ intervalMinutes: _sweepIntervalMinutes, intervalMs: RETRY_INTERVAL_MS, maxRetryCount: MAX_RETRY_COUNT, maxOrderAgeDays: MAX_ORDER_AGE_DAYS }, "Starting scheduled retry sweep");
   setInterval(() => {
     runStuckOrderRetrySweep().catch(err => {
       logger.error({ err }, "Unhandled error in scheduled retry sweep");
