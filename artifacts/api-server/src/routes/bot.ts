@@ -38,24 +38,34 @@ router.get("/bot/config", requireAuth, async (_req, res): Promise<void> => {
     webhookUrl: config.webhookUrl,
     isConnected: config.isConnected,
     webhookStatus: config.webhookStatus,
+    adminChatId: config.adminChatId,
     updatedAt: config.updatedAt,
   });
 });
 
 router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (req, res): Promise<void> => {
-  const { botToken } = req.body as z.infer<typeof SaveBotConfigBody>;
+  const { botToken, adminChatId } = req.body as z.infer<typeof SaveBotConfigBody>;
 
   const existing = await getConfig();
   let config;
   if (existing) {
+    const updateData: Record<string, unknown> = {
+      botToken,
+      isConnected: false,
+      webhookStatus: "not_set",
+      botUsername: null,
+      webhookUrl: null,
+      webhookSecretToken: null,
+    };
+    if (adminChatId !== undefined) updateData.adminChatId = adminChatId;
     const [c] = await db.update(botConfigsTable)
-      .set({ botToken, isConnected: false, webhookStatus: "not_set", botUsername: null, webhookUrl: null, webhookSecretToken: null })
+      .set(updateData)
       .where(eq(botConfigsTable.id, existing.id))
       .returning();
     config = c;
   } else {
     const [c] = await db.insert(botConfigsTable)
-      .values({ botToken, isConnected: false, webhookStatus: "not_set" })
+      .values({ botToken, isConnected: false, webhookStatus: "not_set", adminChatId: adminChatId ?? null })
       .returning();
     config = c;
   }
@@ -67,6 +77,7 @@ router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (
     webhookUrl: config.webhookUrl,
     isConnected: config.isConnected,
     webhookStatus: config.webhookStatus,
+    adminChatId: config.adminChatId,
     updatedAt: config.updatedAt,
   });
 });

@@ -92,6 +92,25 @@ export async function handleSepayWebhook(payload: Record<string, unknown>): Prom
       status: "failed",
       rawPayload: JSON.stringify(payload),
     }).where(eq(transactionsTable.id, transaction.id));
+
+    // Alert admin about the payment mismatch
+    const [failedOrder] = transaction.orderId
+      ? await db.select().from(ordersTable).where(eq(ordersTable.id, transaction.orderId))
+      : [null];
+    const adminMsg =
+      `💸 <b>Thanh toán sai số tiền</b>\n\n` +
+      `📦 Mã giao dịch: <code>${reference}</code>\n` +
+      `${failedOrder ? `🛒 Đơn hàng: <code>${failedOrder.orderCode}</code>\n` : ""}` +
+      `💰 Số tiền nhận: <b>${receivedAmount.toLocaleString("vi-VN")}đ</b>\n` +
+      `✅ Số tiền cần: <b>${expectedAmount.toLocaleString("vi-VN")}đ</b>\n` +
+      `📊 Chênh lệch: ${(receivedAmount - expectedAmount).toLocaleString("vi-VN")}đ\n\n` +
+      `Cần xử lý thủ công giao dịch này.`;
+    try {
+      const { sendAdminAlert } = await import("./bot");
+      await sendAdminAlert(adminMsg, { reference, receivedAmount, expectedAmount, orderId: transaction.orderId });
+    } catch (err) {
+      logger.error({ err }, "Failed to send admin alert for payment mismatch");
+    }
     return;
   }
 

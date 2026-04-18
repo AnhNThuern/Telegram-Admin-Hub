@@ -803,6 +803,7 @@ export const GetBotConfigResponse = zod.object({
   webhookUrl: zod.string().nullish(),
   isConnected: zod.boolean(),
   webhookStatus: zod.string().nullish(),
+  adminChatId: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -811,6 +812,7 @@ export const GetBotConfigResponse = zod.object({
  */
 export const SaveBotConfigBody = zod.object({
   botToken: zod.string(),
+  adminChatId: zod.string().nullish(),
 });
 
 export const SaveBotConfigResponse = zod.object({
@@ -820,6 +822,7 @@ export const SaveBotConfigResponse = zod.object({
   webhookUrl: zod.string().nullish(),
   isConnected: zod.boolean(),
   webhookStatus: zod.string().nullish(),
+  adminChatId: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
 

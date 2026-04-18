@@ -19,11 +19,21 @@ interface TelegramUpdate {
   };
 }
 
-async function getBotToken(): Promise<string | null> {
+async function getBotConfig(): Promise<{ botToken: string | null; adminChatId: string | null }> {
   const { botConfigsTable } = await import("@workspace/db");
   const { desc } = await import("drizzle-orm");
   const [config] = await db.select().from(botConfigsTable).orderBy(desc(botConfigsTable.id)).limit(1);
-  return config?.botToken ?? null;
+  return { botToken: config?.botToken ?? null, adminChatId: config?.adminChatId ?? null };
+}
+
+async function getBotToken(): Promise<string | null> {
+  const { botToken } = await getBotConfig();
+  return botToken;
+}
+
+export async function getAdminChatId(): Promise<string | null> {
+  const { adminChatId } = await getBotConfig();
+  return adminChatId;
 }
 
 async function sendMessage(chatId: number | string, text: string, options?: Record<string, unknown>): Promise<boolean> {
@@ -61,6 +71,26 @@ async function logBotAction(action: string, chatId?: string, customerId?: number
     await db.insert(botLogsTable).values({ action, chatId, customerId, content, metadata: metadata as Record<string, unknown>, level });
   } catch (err) {
     logger.error({ err }, "Failed to log bot action");
+  }
+}
+
+/**
+ * Send an alert message to the admin's Telegram chat.
+ * If no adminChatId is configured, logs the alert to bot_logs only.
+ */
+export async function sendAdminAlert(message: string, metadata?: Record<string, unknown>): Promise<void> {
+  const adminChatId = await getAdminChatId();
+
+  await logBotAction("admin_alert", adminChatId ?? undefined, undefined, message, metadata, "warn");
+
+  if (!adminChatId) {
+    logger.warn({ message, metadata }, "Admin alert skipped — no adminChatId configured");
+    return;
+  }
+
+  const sent = await sendMessage(adminChatId, `⚠️ <b>Cảnh báo Admin</b>\n\n${message}`);
+  if (!sent) {
+    logger.warn({ adminChatId, message }, "Failed to deliver admin alert via Telegram");
   }
 }
 
@@ -273,6 +303,19 @@ export async function deliverOrder(orderId: number): Promise<boolean> {
     );
     await db.update(ordersTable).set({ status: "needs_manual_action" }).where(eq(ordersTable.id, orderId));
     await sendMessage(parseInt(customer.chatId), `⚠️ Đơn hàng <b>${order.orderCode}</b> cần xử lý thủ công. Admin sẽ liên hệ bạn sớm.`);
+
+    // Alert admin about the out-of-stock situation
+    const customerName = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || customer.username || `ID:${customer.id}`;
+    const adminMsg =
+      `❌ <b>Giao hàng thất bại — hết hàng</b>\n\n` +
+      `📦 Đơn hàng: <code>${order.orderCode}</code>\n` +
+      `👤 Khách hàng: ${customerName}${customer.username ? ` (@${customer.username})` : ""}\n` +
+      `🛍️ Sản phẩm: ${item.productName} x${item.quantity}\n` +
+      `💰 Số tiền: ${parseFloat(order.totalAmount).toLocaleString("vi-VN")}đ\n` +
+      `📊 Tồn kho còn: ${availableStocks.length} / cần ${item.quantity}\n\n` +
+      `Cần nhập thêm hàng và xử lý thủ công đơn này.`;
+    await sendAdminAlert(adminMsg, { orderId, productId: item.productId, productName: item.productName, available: availableStocks.length, required: item.quantity });
+
     return false;
   }
 

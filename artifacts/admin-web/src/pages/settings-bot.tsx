@@ -13,6 +13,7 @@ import { z } from "zod";
 
 const botSchema = z.object({
   botToken: z.string().min(1, "Bot token là bắt buộc"),
+  adminChatId: z.string().optional(),
 });
 
 type BotFormValues = z.infer<typeof botSchema>;
@@ -35,6 +36,7 @@ export default function SettingsBot() {
     resolver: zodResolver(botSchema),
     defaultValues: {
       botToken: "",
+      adminChatId: "",
     },
   });
 
@@ -42,13 +44,14 @@ export default function SettingsBot() {
     if (config) {
       form.reset({
         botToken: config.botToken || "",
+        adminChatId: config.adminChatId || "",
       });
     }
   }, [config, form]);
 
   const onSubmit = (data: BotFormValues) => {
     saveConfig.mutate(
-      { data },
+      { data: { botToken: data.botToken, adminChatId: data.adminChatId || null } },
       {
         onSuccess: () => {
           toast({ title: "Đã lưu cấu hình Bot" });
@@ -161,6 +164,24 @@ export default function SettingsBot() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="adminChatId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Chat ID Admin</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="VD: 123456789 (ID Telegram của admin)"
+                          data-testid="input-admin-chat-id"
+                          {...field}
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">Nhận cảnh báo khi có lỗi thanh toán hoặc hết hàng. Dùng @userinfobot để lấy ID.</p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <div className="flex gap-2">
                   <Button type="submit" disabled={saveConfig.isPending} className="flex-1" data-testid="btn-save-bot-config">
                     {saveConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -207,12 +228,23 @@ export default function SettingsBot() {
               <div className={`h-2 w-2 rounded-full ${config?.webhookUrl ? 'bg-emerald-500' : 'bg-muted'}`} />
             </div>
 
+            <div className="flex items-center justify-between p-3 border border-border rounded-md bg-accent/30">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Cảnh báo Admin</p>
+                <p className="text-xs text-muted-foreground">
+                  {config?.adminChatId ? `Chat ID: ${config.adminChatId}` : "Chưa cấu hình"}
+                </p>
+              </div>
+              <div className={`h-2 w-2 rounded-full ${config?.adminChatId ? 'bg-emerald-500' : 'bg-muted'}`} />
+            </div>
+
             <div className="p-3 border border-border rounded-md bg-accent/30 text-sm space-y-2">
               <p className="font-medium text-muted-foreground">Hướng dẫn</p>
               <ol className="list-decimal list-inside space-y-1 text-xs text-muted-foreground">
                 <li>Nhập token từ @BotFather và lưu</li>
+                <li>Nhập Chat ID của admin để nhận cảnh báo</li>
                 <li>Bấm "Kiểm tra" để xác thực token</li>
-                <li>Bấm "Bật Webhook" để nhận tin nhắn</li>
+                <li>Bấm "Khởi động Bot" để nhận tin nhắn</li>
               </ol>
             </div>
           </CardContent>

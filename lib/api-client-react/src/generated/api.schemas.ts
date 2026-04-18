@@ -334,11 +334,13 @@ export interface BotConfig {
   webhookUrl?: string | null;
   isConnected: boolean;
   webhookStatus?: string | null;
+  adminChatId?: string | null;
   updatedAt?: string | null;
 }
 
 export interface SaveBotConfigRequest {
   botToken: string;
+  adminChatId?: string | null;
 }
 
 export interface TestTokenRequest {

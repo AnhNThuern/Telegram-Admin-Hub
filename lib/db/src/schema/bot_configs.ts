@@ -10,6 +10,7 @@ export const botConfigsTable = pgTable("bot_configs", {
   webhookSecretToken: text("webhook_secret_token"),
   isConnected: boolean("is_connected").notNull().default(false),
   webhookStatus: text("webhook_status").default("not_set"),
+  adminChatId: text("admin_chat_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
