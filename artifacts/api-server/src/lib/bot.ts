@@ -407,6 +407,26 @@ export async function deliverOrder(orderId: number): Promise<boolean> {
 
   const deliveryAction = isRetry ? "retry_delivery_sent" : "delivery_sent";
   await logBotAction(deliveryAction, customer.chatId, customer.id, `Delivered order ${order.orderCode}`, { orderId, isRetry });
+
+  // Notify admin when a previously stuck order was auto-delivered
+  if (isRetry) {
+    const customerName = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || customer.username || `ID:${customer.id}`;
+    const deliveredAt = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+    const adminBaseUrl = process.env.ADMIN_BASE_URL
+      || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}` : "")
+      || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "");
+    const orderLink = adminBaseUrl ? `\n🔗 <a href="${adminBaseUrl}/orders/${orderId}">Xem đơn hàng trong Admin Panel</a>` : "";
+    await sendAdminNotification(
+      `✅ <b>Đơn hàng bị kẹt đã được giao tự động</b>\n\n` +
+      `📦 Đơn hàng: <code>${order.orderCode}</code>\n` +
+      `👤 Khách hàng: ${customerName}${customer.username ? ` (@${customer.username})` : ""}\n` +
+      `🛍️ Sản phẩm: ${item.productName} x${item.quantity}\n` +
+      `🕐 Thời gian giao: ${deliveredAt}` +
+      orderLink,
+      { orderId, orderCode: order.orderCode, customerId: customer.id, productName: item.productName }
+    );
+  }
+
   return true;
 }
 
