@@ -645,7 +645,17 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   const finalTotal = Math.max(0, subtotal - discount);
   const totalAmount = finalTotal.toFixed(2);
   const discountAmount = discount.toFixed(2);
-  const orderCode = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  // Order code follows the SePay default template: prefix "DH" + 8 alphanumeric
+  // chars (uppercase letters + digits). Total length 10, fits SePay's 2-5 prefix
+  // and 3-10 suffix rules. Example: DHA1B2C3D4. SePay matches transfers whose
+  // description contains this code, so it must be unique and easy to type.
+  const ORDER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // omit confusing 0/O/1/I
+  const randomBytes = (await import("node:crypto")).randomBytes(8);
+  let suffix = "";
+  for (let i = 0; i < 8; i++) {
+    suffix += ORDER_CODE_ALPHABET[randomBytes[i] % ORDER_CODE_ALPHABET.length];
+  }
+  const orderCode = `DH${suffix}`;
 
   const [order] = await db.insert(ordersTable).values({
     orderCode,
