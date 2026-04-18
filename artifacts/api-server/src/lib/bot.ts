@@ -40,11 +40,16 @@ async function sendMessage(chatId: number | string, text: string, options?: Reco
   const token = await getBotToken();
   if (!token) return false;
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", ...options }),
     });
+    const data = await res.json() as { ok: boolean; description?: string };
+    if (!data.ok) {
+      logger.warn({ chatId, error: data.description }, "Telegram sendMessage returned ok=false");
+      return false;
+    }
     return true;
   } catch (err) {
     logger.error({ err }, "Failed to send Telegram message");
