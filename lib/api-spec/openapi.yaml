@@ -1512,6 +1512,14 @@ components:
         transaction:
           $ref: "#/components/schemas/Transaction"
           nullable: true
+        retryCount:
+          type: integer
+          description: Number of retry attempts made for this order (excludes the initial delivery attempt)
+        retryLogs:
+          type: array
+          items:
+            $ref: "#/components/schemas/RetryLog"
+          description: Chronological log of delivery attempts and retry events for this order
         createdAt:
           type: string
           format: date-time
@@ -1525,8 +1533,39 @@ components:
         - totalAmount
         - status
         - items
+        - retryCount
+        - retryLogs
         - createdAt
         - updatedAt
+
+    RetryLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+        customerId:
+          type: integer
+          nullable: true
+        chatId:
+          type: string
+          nullable: true
+        content:
+          type: string
+          nullable: true
+        metadata:
+          nullable: true
+        level:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - action
+        - level
+        - createdAt
 
     OrderListResponse:
       type: object

@@ -227,6 +227,17 @@ export interface Transaction {
   updatedAt: string;
 }
 
+export interface RetryLog {
+  id: number;
+  action: string;
+  customerId?: number | null;
+  chatId?: string | null;
+  content?: string | null;
+  metadata?: unknown | null;
+  level: string;
+  createdAt: string;
+}
+
 export interface OrderDetail {
   id: number;
   orderCode: string;
@@ -240,6 +251,8 @@ export interface OrderDetail {
   customer?: Customer | null;
   items: OrderItem[];
   transaction?: Transaction | null;
+  retryCount: number;
+  retryLogs: RetryLog[];
   createdAt: string;
   updatedAt: string;
 }

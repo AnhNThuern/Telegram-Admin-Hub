@@ -3,7 +3,7 @@ import { formatVND, formatDate } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Loader2, ArrowLeft, Package, User, CreditCard, Receipt } from "lucide-react";
+import { Loader2, ArrowLeft, Package, User, CreditCard, Receipt, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -20,6 +20,28 @@ const STATUS_LABELS: Record<string, string> = {
   pending: "Chờ thanh toán",
   cancelled: "Đã hủy",
   expired: "Hết hạn",
+};
+
+const RETRY_ACTION_LABELS: Record<string, string> = {
+  delivery_failed: "Giao thất bại",
+  retry_delivery_sent: "Thử lại thủ công – thành công",
+  restock_retry_triggered: "Kích hoạt thử lại do nhập hàng",
+  restock_retry_delivered: "Thử lại sau nhập hàng – thành công",
+  restock_retry_failed: "Thử lại sau nhập hàng – thất bại",
+  scheduled_retry_delivered: "Thử lại tự động – thành công",
+  scheduled_retry_failed: "Thử lại tự động – thất bại",
+  scheduled_retry_exception: "Thử lại tự động – lỗi hệ thống",
+};
+
+const RETRY_ACTION_COLORS: Record<string, string> = {
+  delivery_failed: "bg-destructive/10 text-destructive",
+  retry_delivery_sent: "bg-emerald-500/10 text-emerald-500",
+  restock_retry_triggered: "bg-blue-500/10 text-blue-500",
+  restock_retry_delivered: "bg-emerald-500/10 text-emerald-500",
+  restock_retry_failed: "bg-destructive/10 text-destructive",
+  scheduled_retry_delivered: "bg-emerald-500/10 text-emerald-500",
+  scheduled_retry_failed: "bg-yellow-500/10 text-yellow-500",
+  scheduled_retry_exception: "bg-destructive/10 text-destructive",
 };
 
 const TX_TYPE_LABELS: Record<string, string> = {
@@ -176,6 +198,48 @@ export default function OrderDetails({ params }: { params: { id: string } }) {
           </Table>
         </CardContent>
       </Card>
+
+      {(order.retryCount > 0 || (order.retryLogs && order.retryLogs.length > 0)) && (
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2 pb-3">
+            <RefreshCw className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Lịch sử thử lại giao hàng</CardTitle>
+            <span className="ml-auto inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold bg-yellow-500/10 text-yellow-500">
+              {order.retryCount} lần thử lại
+            </span>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Hành động</TableHead>
+                  <TableHead>Mức độ</TableHead>
+                  <TableHead>Nội dung</TableHead>
+                  <TableHead className="text-right">Thời gian</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {order.retryLogs?.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${RETRY_ACTION_COLORS[log.action] ?? "bg-muted text-muted-foreground"}`}>
+                        {RETRY_ACTION_LABELS[log.action] ?? log.action}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`text-xs font-mono ${log.level === "error" ? "text-destructive" : log.level === "warn" ? "text-yellow-500" : "text-muted-foreground"}`}>
+                        {log.level}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs max-w-xs truncate text-muted-foreground">{log.content || "—"}</TableCell>
+                    <TableCell className="text-right text-xs text-muted-foreground">{formatDate(log.createdAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {order.transaction && (
         <Card>

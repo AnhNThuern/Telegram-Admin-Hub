@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, count } from "drizzle-orm";
-import { db, ordersTable, orderItemsTable, customersTable, transactionsTable } from "@workspace/db";
+import { eq, and, desc, count, sql, or, inArray } from "drizzle-orm";
+import { db, ordersTable, orderItemsTable, customersTable, transactionsTable, botLogsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateParams, validateQuery } from "../middlewares/validate";
 import {
@@ -39,7 +39,51 @@ router.get("/orders/:id", requireAuth, validateParams(GetOrderParams), async (re
     : [null];
   const [transaction] = await db.select().from(transactionsTable).where(eq(transactionsTable.orderId, id));
 
-  res.json({ ...order, items, customer: customer ?? null, transaction: transaction ?? null });
+  // Actions that store orderId directly in metadata (single-order logs)
+  const DIRECT_RETRY_ACTIONS = [
+    "delivery_failed",
+    "retry_delivery_sent",
+    "restock_retry_delivered",
+    "restock_retry_failed",
+    "scheduled_retry_delivered",
+    "scheduled_retry_failed",
+    "scheduled_retry_exception",
+  ];
+
+  // Fetch direct per-order retry logs
+  const directRetryLogs = await db.select().from(botLogsTable).where(
+    and(
+      sql`${botLogsTable.metadata}->>'orderId' = ${id.toString()}`,
+      inArray(botLogsTable.action, DIRECT_RETRY_ACTIONS)
+    )
+  ).orderBy(botLogsTable.createdAt);
+
+  // Fetch restock_retry_triggered logs whose orderIds array contains this order id
+  const restockTriggerLogs = await db.select().from(botLogsTable).where(
+    and(
+      eq(botLogsTable.action, "restock_retry_triggered"),
+      sql`${botLogsTable.metadata}->'orderIds' @> ${JSON.stringify([id])}::jsonb`
+    )
+  ).orderBy(botLogsTable.createdAt);
+
+  // Merge and sort chronologically
+  const retryLogs = [...directRetryLogs, ...restockTriggerLogs].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
+  // Retry count = number of actual RETRY attempts (excludes the initial delivery_failed;
+  // only counts results from subsequent retry flows)
+  const RETRY_RESULT_ACTIONS = [
+    "retry_delivery_sent",
+    "restock_retry_delivered",
+    "restock_retry_failed",
+    "scheduled_retry_delivered",
+    "scheduled_retry_failed",
+    "scheduled_retry_exception",
+  ];
+  const retryCount = directRetryLogs.filter(log => RETRY_RESULT_ACTIONS.includes(log.action)).length;
+
+  res.json({ ...order, items, customer: customer ?? null, transaction: transaction ?? null, retryCount, retryLogs });
 });
 
 export default router;
