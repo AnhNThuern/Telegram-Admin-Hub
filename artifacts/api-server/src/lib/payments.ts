@@ -277,9 +277,10 @@ export async function handleSepayWebhook(payload: Record<string, unknown>): Prom
 }
 
 /**
- * Deduct from customer wallet balance and mark the order as paid.
- * Returns "success", "insufficient" (not enough balance), or "error" (order not eligible).
- * The deduction is atomic: if balance would go negative the update is rolled back.
+ * Deduct from customer wallet balance and mark the order as paid — atomically.
+ * All three operations (order claim, balance deduction, transaction insert) run in
+ * a single DB transaction; any failure rolls back all of them.
+ * Returns "success", "insufficient" (not enough balance), or "error" (order not eligible / already claimed).
  */
 export async function payWithBalance(orderId: number, customerId: number): Promise<"success" | "insufficient" | "error"> {
   const [order] = await db.select().from(ordersTable).where(
@@ -289,32 +290,48 @@ export async function payWithBalance(orderId: number, customerId: number): Promi
 
   const totalAmount = parseFloat(order.totalAmount).toFixed(2);
 
-  // Atomically deduct — no update if balance would go below zero
-  const updated = await db.update(customersTable)
-    .set({ balance: sql`balance - ${totalAmount}::numeric` })
-    .where(and(
-      eq(customersTable.id, customerId),
-      sql`balance >= ${totalAmount}::numeric`
-    ))
-    .returning({ newBalance: customersTable.balance });
+  const INSUFFICIENT = "INSUFFICIENT_BALANCE";
 
-  if (updated.length === 0) return "insufficient";
+  try {
+    await db.transaction(async (tx) => {
+      // 1. Claim the order (pending → paid) — prevents concurrent double-payment
+      const claimed = await tx.update(ordersTable)
+        .set({ status: "paid", paidAt: new Date() })
+        .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "pending")))
+        .returning({ id: ordersTable.id });
 
-  const transactionCode = `TXN-WALLET-${Date.now()}-${orderId}`;
-  await db.insert(transactionsTable).values({
-    transactionCode,
-    type: "balance_payment",
-    orderId,
-    customerId,
-    amount: order.totalAmount,
-    status: "confirmed",
-    provider: "wallet",
-    confirmedAt: new Date(),
-  });
+      if (claimed.length === 0) throw new Error("ORDER_ALREADY_CLAIMED");
 
-  await db.update(ordersTable)
-    .set({ status: "paid", paidAt: new Date() })
-    .where(eq(ordersTable.id, orderId));
+      // 2. Deduct balance — rolls back order claim if balance is insufficient
+      const deducted = await tx.update(customersTable)
+        .set({ balance: sql`balance - ${totalAmount}::numeric` })
+        .where(and(
+          eq(customersTable.id, customerId),
+          sql`balance >= ${totalAmount}::numeric`
+        ))
+        .returning({ newBalance: customersTable.balance });
 
-  return "success";
+      if (deducted.length === 0) throw new Error(INSUFFICIENT);
+
+      // 3. Record the wallet transaction
+      const transactionCode = `TXN-WALLET-${Date.now()}-${orderId}`;
+      await tx.insert(transactionsTable).values({
+        transactionCode,
+        type: "balance_payment",
+        orderId,
+        customerId,
+        amount: order.totalAmount,
+        status: "confirmed",
+        provider: "wallet",
+        confirmedAt: new Date(),
+      });
+    });
+
+    return "success";
+  } catch (err) {
+    const message = (err as Error).message;
+    if (message === INSUFFICIENT) return "insufficient";
+    if (message === "ORDER_ALREADY_CLAIMED") return "error";
+    throw err;
+  }
 }

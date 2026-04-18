@@ -371,7 +371,6 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
   }
 
   const { createPaymentRequest } = await import("./payments");
-  // Reuse existing payment reference if already created, otherwise create new
   const paymentInfo = await createPaymentRequest(orderId);
   if (!paymentInfo) {
     await sendMessage(chatId, "❌ Không thể tạo thông tin thanh toán. Vui lòng liên hệ admin.");
