@@ -275,3 +275,46 @@ export async function handleSepayWebhook(payload: Record<string, unknown>): Prom
     }
   }
 }
+
+/**
+ * Deduct from customer wallet balance and mark the order as paid.
+ * Returns "success", "insufficient" (not enough balance), or "error" (order not eligible).
+ * The deduction is atomic: if balance would go negative the update is rolled back.
+ */
+export async function payWithBalance(orderId: number, customerId: number): Promise<"success" | "insufficient" | "error"> {
+  const [order] = await db.select().from(ordersTable).where(
+    and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
+  );
+  if (!order || order.status !== "pending") return "error";
+
+  const totalAmount = parseFloat(order.totalAmount).toFixed(2);
+
+  // Atomically deduct — no update if balance would go below zero
+  const updated = await db.update(customersTable)
+    .set({ balance: sql`balance - ${totalAmount}::numeric` })
+    .where(and(
+      eq(customersTable.id, customerId),
+      sql`balance >= ${totalAmount}::numeric`
+    ))
+    .returning({ newBalance: customersTable.balance });
+
+  if (updated.length === 0) return "insufficient";
+
+  const transactionCode = `TXN-WALLET-${Date.now()}-${orderId}`;
+  await db.insert(transactionsTable).values({
+    transactionCode,
+    type: "balance_payment",
+    orderId,
+    customerId,
+    amount: order.totalAmount,
+    status: "confirmed",
+    provider: "wallet",
+    confirmedAt: new Date(),
+  });
+
+  await db.update(ordersTable)
+    .set({ status: "paid", paidAt: new Date() })
+    .where(eq(ordersTable.id, orderId));
+
+  return "success";
+}

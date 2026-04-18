@@ -306,12 +306,39 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
 
   await logBotAction("create_order", String(chatId), customerId, `Order ${orderCode} created`, { orderId: order.id, productId, quantity });
 
-  // Send payment instructions
+  const amountFormatted = parseFloat(totalAmount).toLocaleString("vi-VN");
+
+  // Check customer's wallet balance
+  const [customer] = await db.select({ balance: customersTable.balance }).from(customersTable).where(eq(customersTable.id, customerId));
+  const customerBalance = customer ? parseFloat(customer.balance) : 0;
+  const orderTotal = parseFloat(totalAmount);
+
+  if (customerBalance >= orderTotal) {
+    // Offer both payment methods
+    const balanceFormatted = customerBalance.toLocaleString("vi-VN");
+    let msg = `✅ <b>Đơn hàng #${orderCode} đã tạo!</b>\n\n`;
+    msg += `📦 Sản phẩm: ${product.name} x${quantity}\n`;
+    msg += `💰 Tổng tiền: <b>${amountFormatted}đ</b>\n`;
+    msg += `👛 Số dư ví: <b>${balanceFormatted}đ</b>\n\n`;
+    msg += `Bạn muốn thanh toán bằng cách nào?`;
+
+    await sendMessage(chatId, msg, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `💰 Trả bằng số dư (${balanceFormatted}đ)`, callback_data: `pay_with_balance_${order.id}` }],
+          [{ text: "🏦 Chuyển khoản ngân hàng", callback_data: `show_bank_transfer_${order.id}` }],
+        ],
+      },
+    });
+    await logBotAction("payment_choice_offered", String(chatId), customerId, `Wallet vs bank for order ${orderCode}`, { orderId: order.id });
+    return;
+  }
+
+  // Balance insufficient — show bank transfer details directly
   const { createPaymentRequest } = await import("./payments");
   const paymentInfo = await createPaymentRequest(order.id);
 
   if (paymentInfo) {
-    const amountFormatted = parseFloat(totalAmount).toLocaleString("vi-VN");
     let msg = `✅ <b>Đơn hàng #${orderCode} đã tạo!</b>\n\n`;
     msg += `📦 Sản phẩm: ${product.name} x${quantity}\n`;
     msg += `💰 Tổng tiền: <b>${amountFormatted}đ</b>\n\n`;
@@ -323,11 +350,44 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     msg += `Nội dung CK: <code>${paymentInfo.reference}</code>\n\n`;
     msg += `⚠️ <i>Vui lòng chuyển khoản đúng nội dung để đơn hàng được xử lý tự động.</i>`;
 
+    if (customerBalance > 0) {
+      msg += `\n\n💡 <i>Số dư ví ${customerBalance.toLocaleString("vi-VN")}đ chưa đủ để thanh toán. Nạp thêm bằng /naptien để thanh toán nhanh hơn.</i>`;
+    }
+
     await sendMessage(chatId, msg);
     await logBotAction("payment_initiated", String(chatId), customerId, `Payment for order ${orderCode}`, { orderId: order.id, reference: paymentInfo.reference });
   } else {
     await sendMessage(chatId, `✅ Đơn hàng <b>${orderCode}</b> đã tạo! Vui lòng liên hệ admin để thanh toán.`);
   }
+}
+
+async function sendBankTransferForOrder(chatId: number | string, orderId: number, customerId: number): Promise<void> {
+  const [order] = await db.select().from(ordersTable).where(
+    and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
+  );
+  if (!order || order.status !== "pending") {
+    await sendMessage(chatId, "❌ Đơn hàng không còn hợp lệ để thanh toán.");
+    return;
+  }
+
+  const { createPaymentRequest } = await import("./payments");
+  // Reuse existing payment reference if already created, otherwise create new
+  const paymentInfo = await createPaymentRequest(orderId);
+  if (!paymentInfo) {
+    await sendMessage(chatId, "❌ Không thể tạo thông tin thanh toán. Vui lòng liên hệ admin.");
+    return;
+  }
+
+  const amountFormatted = parseFloat(order.totalAmount).toLocaleString("vi-VN");
+  let msg = `🏦 <b>Thanh toán chuyển khoản cho đơn ${order.orderCode}</b>\n\n`;
+  msg += `Ngân hàng: <b>${paymentInfo.bankName}</b>\n`;
+  msg += `Số tài khoản: <code>${paymentInfo.accountNumber}</code>\n`;
+  msg += `Chủ TK: <b>${paymentInfo.accountHolder}</b>\n`;
+  msg += `Số tiền: <b>${amountFormatted}đ</b>\n`;
+  msg += `Nội dung CK: <code>${paymentInfo.reference}</code>\n\n`;
+  msg += `⚠️ <i>Vui lòng chuyển khoản đúng nội dung để đơn hàng được xử lý tự động.</i>`;
+
+  await sendMessage(chatId, msg);
 }
 
 export async function deliverOrder(orderId: number): Promise<boolean> {
@@ -535,6 +595,24 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         const productId = parseInt(parts[1], 10);
         const quantity = parseInt(parts[2], 10);
         await createOrderFromBot(chatId, customer.id, productId, quantity);
+      } else if (data.startsWith("pay_with_balance_")) {
+        const orderId = parseInt(data.replace("pay_with_balance_", ""), 10);
+        const { payWithBalance } = await import("./payments");
+        const result = await payWithBalance(orderId, customer.id);
+        if (result === "success") {
+          await logBotAction("wallet_payment", String(chatId), customer.id, `Wallet payment for order ${orderId}`, { orderId });
+          const delivered = await deliverOrder(orderId);
+          if (!delivered) {
+            await sendMessage(chatId, `✅ Đã thanh toán bằng số dư ví! Đơn hàng đang được xử lý — chúng tôi sẽ giao hàng ngay khi có hàng.`);
+          }
+        } else if (result === "insufficient") {
+          await sendMessage(chatId, "❌ Số dư ví không đủ. Vui lòng nạp thêm hoặc chuyển khoản ngân hàng.");
+        } else {
+          await sendMessage(chatId, "❌ Đơn hàng không còn hợp lệ để thanh toán bằng ví.");
+        }
+      } else if (data.startsWith("show_bank_transfer_")) {
+        const orderId = parseInt(data.replace("show_bank_transfer_", ""), 10);
+        await sendBankTransferForOrder(chatId, orderId, customer.id);
       } else if (data === "my_orders") {
         const recentOrders = await db.select().from(ordersTable)
           .where(eq(ordersTable.customerId, customer.id))
