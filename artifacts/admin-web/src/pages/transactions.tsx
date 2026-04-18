@@ -68,6 +68,7 @@ export default function Transactions() {
             <SelectItem value="purchase">Mua hàng</SelectItem>
             <SelectItem value="refund">Hoàn tiền</SelectItem>
             <SelectItem value="manual_credit">Cộng thủ công</SelectItem>
+            <SelectItem value="adjustment">Điều chỉnh số dư</SelectItem>
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
@@ -116,7 +117,8 @@ export default function Transactions() {
                         {tx.type === 'deposit' ? 'Nạp tiền' : 
                          tx.type === 'purchase' ? 'Mua hàng' : 
                          tx.type === 'refund' ? 'Hoàn tiền' : 
-                         tx.type === 'manual_credit' ? 'Cộng tiền' : tx.type}
+                         tx.type === 'manual_credit' ? 'Cộng tiền' : 
+                         tx.type === 'adjustment' ? 'Điều chỉnh' : tx.type}
                       </span>
                     </TableCell>
                     <TableCell className={`font-bold ${tx.amount.startsWith('-') ? 'text-destructive' : 'text-emerald-500'}`}>
