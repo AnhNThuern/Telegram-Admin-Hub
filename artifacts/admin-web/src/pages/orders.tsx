@@ -179,12 +179,23 @@ export default function Orders() {
                         {STATUS_LABELS[order.status as string] ?? order.status}
                       </span>
                     </TableCell>
-                    <TableCell className="text-center text-sm text-muted-foreground">
+                    <TableCell className="text-center text-sm">
                       {(order.retryCount ?? 0) > 0 ? (
-                        <span className={`font-mono ${(order.retryCount ?? 0) >= 8 ? "text-orange-400" : ""}`}>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-xs font-semibold ${
+                            (order.retryCount ?? 0) >= 8
+                              ? "bg-orange-500/15 text-orange-400"
+                              : "bg-yellow-500/15 text-yellow-500"
+                          }`}
+                          data-testid={`badge-retry-${order.id}`}
+                          title={`${order.retryCount} lần thử lại`}
+                        >
+                          <RefreshCw className="h-3 w-3" />
                           {order.retryCount}
                         </span>
-                      ) : "—"}
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{formatDate(order.createdAt)}</TableCell>
                     <TableCell className="text-right">
