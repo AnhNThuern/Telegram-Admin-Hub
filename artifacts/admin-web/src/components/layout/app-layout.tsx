@@ -1,10 +1,12 @@
 import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Redirect, useLocation } from "wouter";
 import { Sidebar } from "./sidebar";
 import { Loader2, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const { data: user, isLoading, error } = useGetMe({
     query: {
       retry: false,
@@ -16,7 +18,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const handleLogout = () => {
     logout.mutate(undefined, {
-      onSuccess: () => setLocation("/login"),
+      onSuccess: () => {
+        queryClient.removeQueries({ queryKey: getGetMeQueryKey() });
+        queryClient.clear();
+        setLocation("/login");
+      },
     });
   };
 
