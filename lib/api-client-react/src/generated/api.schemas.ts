@@ -262,6 +262,7 @@ export interface Transaction {
   status: string;
   provider?: string | null;
   rawPayload?: string | null;
+  notes?: string | null;
   confirmedAt?: string | null;
   createdAt: string;
   updatedAt: string;

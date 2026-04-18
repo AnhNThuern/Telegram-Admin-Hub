@@ -283,6 +283,7 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
                     <TableHead>Loại</TableHead>
                     <TableHead>Trạng thái</TableHead>
                     <TableHead>Thời gian</TableHead>
+                    <TableHead>Ghi chú</TableHead>
                     <TableHead className="text-right">Số tiền</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -311,6 +312,9 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
                         </span>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{formatDate(tx.createdAt)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[240px] truncate" title={tx.notes ?? undefined} data-testid={`text-tx-notes-${tx.id}`}>
+                        {tx.notes ?? "—"}
+                      </TableCell>
                       <TableCell className={`text-right font-bold ${tx.amount.startsWith('-') ? 'text-destructive' : 'text-emerald-500'}`}>
                         {tx.amount.startsWith('-') ? '' : '+'}{formatVND(tx.amount)}
                       </TableCell>
@@ -318,7 +322,7 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
                   ))}
                   {(!transactions?.data || transactions.data.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-16 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={6} className="h-16 text-center text-sm text-muted-foreground">
                         Không có giao dịch nào
                       </TableCell>
                     </TableRow>

@@ -123,6 +123,17 @@ export default function TransactionDetails({ params }: { params: { id: string } 
         </Card>
       </div>
 
+      {tx.notes && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Ghi chú</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm whitespace-pre-wrap" data-testid="text-tx-notes">{tx.notes}</p>
+          </CardContent>
+        </Card>
+      )}
+
       {tx.rawPayload && (
         <Card>
           <CardHeader>

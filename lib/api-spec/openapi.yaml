@@ -1807,6 +1807,9 @@ components:
         rawPayload:
           type: string
           nullable: true
+        notes:
+          type: string
+          nullable: true
         confirmedAt:
           type: string
           format: date-time
