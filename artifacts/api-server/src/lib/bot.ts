@@ -1,5 +1,5 @@
 import { db, botLogsTable, customersTable, ordersTable, orderItemsTable, productStocksTable, transactionsTable, productsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 
 interface TelegramUpdate {
@@ -173,6 +173,7 @@ async function showMainMenu(chatId: number | string, customerName?: string): Pro
       inline_keyboard: [
         [{ text: "🛍️ Xem sản phẩm", callback_data: "browse_products" }],
         [{ text: "📦 Đơn hàng của tôi", callback_data: "my_orders" }],
+        [{ text: "💳 Lịch sử ví", callback_data: "wallet_history" }],
       ],
     },
   });
@@ -521,6 +522,50 @@ export async function deliverOrder(orderId: number): Promise<boolean> {
   return true;
 }
 
+async function showWalletHistory(chatId: number | string, customer: typeof customersTable.$inferSelect): Promise<void> {
+  const txns = await db.select()
+    .from(transactionsTable)
+    .where(and(
+      eq(transactionsTable.customerId, customer.id),
+      inArray(transactionsTable.type, ["topup", "balance_payment"]),
+      eq(transactionsTable.status, "confirmed"),
+    ))
+    .orderBy(desc(transactionsTable.createdAt))
+    .limit(10);
+
+  const balanceFormatted = parseFloat(customer.balance).toLocaleString("vi-VN");
+  let msg = `💳 <b>Lịch sử ví</b>\n\n`;
+  msg += `👛 Số dư hiện tại: <b>${balanceFormatted}đ</b>\n\n`;
+
+  if (txns.length === 0) {
+    msg += `<i>Chưa có giao dịch ví nào.</i>\n\nDùng <code>/naptien [số tiền]</code> để nạp tiền vào ví.`;
+  } else {
+    msg += `<b>${txns.length} giao dịch gần nhất:</b>\n`;
+    for (const t of txns) {
+      const amount = parseFloat(t.amount);
+      const amountFormatted = amount.toLocaleString("vi-VN");
+      const date = new Date(t.createdAt).toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const isTopup = t.type === "topup";
+      const label = isTopup ? "⬆️ Nạp tiền" : "⬇️ Thanh toán";
+      const sign = isTopup ? "+" : "−";
+      msg += `\n${label}\n   ${sign}${amountFormatted}đ • ${date}\n`;
+    }
+  }
+
+  await sendMessage(chatId, msg, {
+    reply_markup: {
+      inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: "main_menu" }]],
+    },
+  });
+}
+
 async function handleTopup(chatId: number | string, customer: typeof customersTable.$inferSelect, text: string): Promise<void> {
   const parts = text.trim().split(/\s+/);
   const rawAmount = parts[1];
@@ -595,6 +640,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         await showMainMenu(chatId, from.first_name);
       } else if (text.startsWith("/naptien")) {
         await handleTopup(chatId, customer, text);
+      } else if (text === "/lichsu") {
+        await showWalletHistory(chatId, customer);
       }
     } else if (update.callback_query) {
       const cq = update.callback_query;
@@ -644,6 +691,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       } else if (data.startsWith("show_bank_transfer_")) {
         const orderId = parseInt(data.replace("show_bank_transfer_", ""), 10);
         await sendBankTransferForOrder(chatId, orderId, customer.id);
+      } else if (data === "wallet_history") {
+        await showWalletHistory(chatId, customer);
       } else if (data === "my_orders") {
         const recentOrders = await db.select().from(ordersTable)
           .where(eq(ordersTable.customerId, customer.id))
