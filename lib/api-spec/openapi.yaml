@@ -1597,6 +1597,17 @@ components:
           type: integer
         totalAmount:
           type: string
+        promotionId:
+          type: integer
+          nullable: true
+        discountAmount:
+          type: string
+          nullable: true
+          description: Discount applied to this order in VND (string representation of numeric).
+        promotionCode:
+          type: string
+          nullable: true
+          description: Promo code that was applied to this order, if any.
         status:
           type: string
         retryCount:
@@ -1700,6 +1711,28 @@ components:
           type: integer
         totalAmount:
           type: string
+        promotionId:
+          type: integer
+          nullable: true
+        discountAmount:
+          type: string
+          nullable: true
+          description: Discount applied to this order in VND.
+        promotion:
+          nullable: true
+          type: object
+          description: The promotion that was applied, if any.
+          properties:
+            id:
+              type: integer
+            code:
+              type: string
+              nullable: true
+            name:
+              type: string
+          required:
+            - id
+            - name
         status:
           type: string
         paymentReference:

@@ -236,6 +236,11 @@ export interface Order {
   orderCode: string;
   customerId: number;
   totalAmount: string;
+  promotionId?: number | null;
+  /** Discount applied to this order in VND (string representation of numeric). */
+  discountAmount?: string | null;
+  /** Promo code that was applied to this order, if any. */
+  promotionCode?: string | null;
   status: string;
   retryCount?: number | null;
   retryExhaustedAt?: string | null;
@@ -257,6 +262,15 @@ export interface OrderItem {
   totalPrice: string;
   createdAt: string;
 }
+
+/**
+ * The promotion that was applied, if any.
+ */
+export type OrderDetailPromotion = {
+  id: number;
+  code?: string | null;
+  name: string;
+} | null;
 
 export interface Transaction {
   id: number;
@@ -291,6 +305,11 @@ export interface OrderDetail {
   orderCode: string;
   customerId: number;
   totalAmount: string;
+  promotionId?: number | null;
+  /** Discount applied to this order in VND. */
+  discountAmount?: string | null;
+  /** The promotion that was applied, if any. */
+  promotion?: OrderDetailPromotion;
   status: string;
   paymentReference?: string | null;
   paidAt?: string | null;

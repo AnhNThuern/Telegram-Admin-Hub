@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Eye, RefreshCw } from "lucide-react";
+import { Loader2, Eye, RefreshCw, Tag } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 
@@ -189,6 +189,7 @@ export default function Orders() {
                   <TableHead>Mã ĐH</TableHead>
                   <TableHead>Khách hàng (ID)</TableHead>
                   <TableHead>Tổng tiền</TableHead>
+                  <TableHead>Giảm giá</TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead>Lần thử</TableHead>
                   <TableHead>Thời gian tạo</TableHead>
@@ -201,6 +202,23 @@ export default function Orders() {
                     <TableCell className="font-mono font-medium">{order.orderCode}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{order.customerId}</TableCell>
                     <TableCell className="font-bold text-primary">{formatVND(order.totalAmount)}</TableCell>
+                    <TableCell>
+                      {parseFloat(order.discountAmount ?? "0") > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-500"
+                          data-testid={`badge-discount-${order.id}`}
+                          title={order.promotionCode ? `Mã: ${order.promotionCode}` : "Đã áp dụng giảm giá"}
+                        >
+                          <Tag className="h-3 w-3" />
+                          −{formatVND(order.discountAmount ?? "0")}
+                          {order.promotionCode && (
+                            <span className="ml-1 font-mono text-[10px] uppercase opacity-80">{order.promotionCode}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[order.status as string] ?? "bg-muted/50 text-muted-foreground"}`}>
                         {STATUS_LABELS[order.status as string] ?? order.status}
@@ -236,7 +254,7 @@ export default function Orders() {
                 ))}
                 {orderList?.data?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                       Không tìm thấy đơn hàng nào.
                     </TableCell>
                   </TableRow>

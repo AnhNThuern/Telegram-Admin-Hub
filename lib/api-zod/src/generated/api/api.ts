@@ -354,6 +354,17 @@ export const ListOrdersResponse = zod.object({
       orderCode: zod.string(),
       customerId: zod.number(),
       totalAmount: zod.string(),
+      promotionId: zod.number().nullish(),
+      discountAmount: zod
+        .string()
+        .nullish()
+        .describe(
+          "Discount applied to this order in VND (string representation of numeric).",
+        ),
+      promotionCode: zod
+        .string()
+        .nullish()
+        .describe("Promo code that was applied to this order, if any."),
       status: zod.string(),
       retryCount: zod.number().nullish(),
       retryExhaustedAt: zod.coerce.date().nullish(),
@@ -382,6 +393,19 @@ export const GetOrderResponse = zod.object({
   orderCode: zod.string(),
   customerId: zod.number(),
   totalAmount: zod.string(),
+  promotionId: zod.number().nullish(),
+  discountAmount: zod
+    .string()
+    .nullish()
+    .describe("Discount applied to this order in VND."),
+  promotion: zod
+    .object({
+      id: zod.number(),
+      code: zod.string().nullish(),
+      name: zod.string(),
+    })
+    .nullish()
+    .describe("The promotion that was applied, if any."),
   status: zod.string(),
   paymentReference: zod.string().nullish(),
   paidAt: zod.coerce.date().nullish(),
@@ -663,6 +687,17 @@ export const GetCustomerOrdersResponse = zod.object({
       orderCode: zod.string(),
       customerId: zod.number(),
       totalAmount: zod.string(),
+      promotionId: zod.number().nullish(),
+      discountAmount: zod
+        .string()
+        .nullish()
+        .describe(
+          "Discount applied to this order in VND (string representation of numeric).",
+        ),
+      promotionCode: zod
+        .string()
+        .nullish()
+        .describe("Promo code that was applied to this order, if any."),
       status: zod.string(),
       retryCount: zod.number().nullish(),
       retryExhaustedAt: zod.coerce.date().nullish(),

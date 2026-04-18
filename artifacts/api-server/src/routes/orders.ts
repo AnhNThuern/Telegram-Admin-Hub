@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, desc, count, sql, or, inArray } from "drizzle-orm";
-import { db, ordersTable, orderItemsTable, customersTable, transactionsTable, botLogsTable } from "@workspace/db";
+import { db, ordersTable, orderItemsTable, customersTable, transactionsTable, botLogsTable, promotionsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateParams, validateQuery } from "../middlewares/validate";
 import {
@@ -21,7 +21,19 @@ router.get("/orders", requireAuth, validateQuery(ListOrdersQueryParams), async (
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [totalRow] = await db.select({ count: count() }).from(ordersTable).where(where);
-  const data = await db.select().from(ordersTable).where(where).orderBy(desc(ordersTable.createdAt)).limit(limit).offset(offset);
+  const rows = await db
+    .select({
+      order: ordersTable,
+      promotionCode: promotionsTable.code,
+    })
+    .from(ordersTable)
+    .leftJoin(promotionsTable, eq(promotionsTable.id, ordersTable.promotionId))
+    .where(where)
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  const data = rows.map((r) => ({ ...r.order, promotionCode: r.promotionCode ?? null }));
 
   res.json({ data, total: totalRow?.count ?? 0, page, limit });
 });
@@ -38,6 +50,12 @@ router.get("/orders/:id", requireAuth, validateParams(GetOrderParams), async (re
     ? await db.select().from(customersTable).where(eq(customersTable.id, order.customerId))
     : [null];
   const [transaction] = await db.select().from(transactionsTable).where(eq(transactionsTable.orderId, id));
+  const [promotion] = order.promotionId
+    ? await db
+        .select({ id: promotionsTable.id, code: promotionsTable.code, name: promotionsTable.name })
+        .from(promotionsTable)
+        .where(eq(promotionsTable.id, order.promotionId))
+    : [null];
 
   // Actions that store orderId directly in metadata (single-order logs)
   const DIRECT_RETRY_ACTIONS = [
@@ -73,7 +91,15 @@ router.get("/orders/:id", requireAuth, validateParams(GetOrderParams), async (re
 
   // retryCount is now persisted on the order itself (incremented inside deliverOrder
   // for each isRetry attempt). bot_logs are still returned for the detailed history view.
-  res.json({ ...order, items, customer: customer ?? null, transaction: transaction ?? null, retryCount: order.retryCount, retryLogs });
+  res.json({
+    ...order,
+    items,
+    customer: customer ?? null,
+    transaction: transaction ?? null,
+    promotion: promotion ?? null,
+    retryCount: order.retryCount,
+    retryLogs,
+  });
 });
 
 export default router;

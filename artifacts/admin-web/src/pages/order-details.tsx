@@ -3,7 +3,7 @@ import { formatVND, formatDate } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Loader2, ArrowLeft, Package, User, CreditCard, Receipt, RefreshCw } from "lucide-react";
+import { Loader2, ArrowLeft, Package, User, CreditCard, Receipt, RefreshCw, Tag } from "lucide-react";
 import { Link } from "wouter";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -140,6 +140,34 @@ export default function OrderDetails({ params }: { params: { id: string } }) {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-2 text-sm">
+              {parseFloat(order.discountAmount ?? "0") > 0 && (
+                <>
+                  <span className="text-muted-foreground">Tạm tính:</span>
+                  <span className="col-span-2 line-through text-muted-foreground" data-testid="text-subtotal">
+                    {formatVND((parseFloat(order.totalAmount) + parseFloat(order.discountAmount ?? "0")).toFixed(2))}
+                  </span>
+
+                  <span className="text-muted-foreground">Mã giảm giá:</span>
+                  <span className="col-span-2" data-testid="text-promotion-code">
+                    {order.promotion ? (
+                      <Link href="/promotions">
+                        <span className="inline-flex items-center gap-1 cursor-pointer hover-elevate active-elevate-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-500">
+                          <Tag className="h-3 w-3" />
+                          {order.promotion.code ?? order.promotion.name}
+                        </span>
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </span>
+
+                  <span className="text-muted-foreground">Giảm giá:</span>
+                  <span className="col-span-2 font-semibold text-emerald-500" data-testid="text-discount-amount">
+                    −{formatVND(order.discountAmount ?? "0")}
+                  </span>
+                </>
+              )}
+
               <span className="text-muted-foreground">Tổng tiền:</span>
               <span className="col-span-2 font-bold text-primary text-base">{formatVND(order.totalAmount)}</span>
               

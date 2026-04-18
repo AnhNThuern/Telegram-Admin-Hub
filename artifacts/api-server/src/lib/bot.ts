@@ -887,8 +887,28 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
 
   // Send stock content to customer
   let deliveryMsg = `🎉 <b>Đơn hàng ${order.orderCode} đã giao thành công!</b>\n\n`;
-  deliveryMsg += `📦 ${item.productName} x${item.quantity}\n\n`;
-  deliveryMsg += `<b>Thông tin sản phẩm:</b>\n`;
+  deliveryMsg += `📦 ${item.productName} x${item.quantity}\n`;
+
+  // Show discount details on the receipt if a promo code was applied
+  const orderDiscount = parseFloat(order.discountAmount ?? "0");
+  if (orderDiscount > 0) {
+    let promoCode: string | null = null;
+    if (order.promotionId) {
+      const [promo] = await db
+        .select({ code: promotionsTable.code })
+        .from(promotionsTable)
+        .where(eq(promotionsTable.id, order.promotionId));
+      promoCode = promo?.code ?? null;
+    }
+    const subtotal = parseFloat(order.totalAmount) + orderDiscount;
+    deliveryMsg += `🧾 Tạm tính: <s>${subtotal.toLocaleString("vi-VN")}đ</s>\n`;
+    deliveryMsg += promoCode
+      ? `🎟️ Mã giảm giá: <code>${promoCode}</code> (−${orderDiscount.toLocaleString("vi-VN")}đ)\n`
+      : `🎟️ Giảm giá: −${orderDiscount.toLocaleString("vi-VN")}đ\n`;
+    deliveryMsg += `💰 Đã thanh toán: <b>${parseFloat(order.totalAmount).toLocaleString("vi-VN")}đ</b>\n`;
+  }
+
+  deliveryMsg += `\n<b>Thông tin sản phẩm:</b>\n`;
   availableStocks.forEach((s, i) => {
     deliveryMsg += `${i + 1}. <code>${s.content}</code>\n`;
   });
