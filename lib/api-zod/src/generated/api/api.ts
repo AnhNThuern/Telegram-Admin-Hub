@@ -458,6 +458,39 @@ export const GetOrderResponse = zod.object({
 });
 
 /**
+ * @summary List orders waiting for restock (needs_manual_action), oldest first
+ */
+export const GetRestockQueueResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      orderCode: zod.string(),
+      status: zod.string(),
+      totalAmount: zod.string(),
+      retryCount: zod.number(),
+      createdAt: zod.coerce.date(),
+      customer: zod
+        .object({
+          id: zod.number(),
+          firstName: zod.string().nullish(),
+          lastName: zod.string().nullish(),
+          username: zod.string().nullish(),
+          chatId: zod.string(),
+        })
+        .nullable(),
+      items: zod.array(
+        zod.object({
+          id: zod.number(),
+          productId: zod.number(),
+          quantity: zod.number(),
+          productName: zod.string().nullish(),
+        }),
+      ),
+    }),
+  ),
+});
+
+/**
  * @summary Get last retry sweep timestamp
  */
 export const GetRetrySweepStatusResponse = zod.object({

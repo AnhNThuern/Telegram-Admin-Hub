@@ -27,6 +27,32 @@ export interface RetrySweepResult {
   lastSweepAt: string | null;
 }
 
+export type RestockQueueItemCustomer = {
+  id: number;
+  firstName?: string | null;
+  lastName?: string | null;
+  username?: string | null;
+  chatId: string;
+} | null;
+
+export type RestockQueueItemItemsItem = {
+  id: number;
+  productId: number;
+  quantity: number;
+  productName?: string | null;
+};
+
+export interface RestockQueueItem {
+  id: number;
+  orderCode: string;
+  status: string;
+  totalAmount: string;
+  retryCount: number;
+  createdAt: string;
+  customer: RestockQueueItemCustomer;
+  items: RestockQueueItemItemsItem[];
+}
+
 export interface RetrySweepStatus {
   lastSweepAt: string | null;
 }
@@ -443,6 +469,10 @@ export type ListOrdersParams = {
   limit?: number;
   status?: string;
   customerId?: number;
+};
+
+export type GetRestockQueue200 = {
+  data: RestockQueueItem[];
 };
 
 export type ListTransactionsParams = {

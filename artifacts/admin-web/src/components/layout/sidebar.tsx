@@ -10,6 +10,7 @@ import {
   Settings, 
   Bot, 
   Activity,
+  PackageX,
   LogOut,
   Menu,
   X
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/categories", label: "Danh mục", icon: Package },
   { href: "/products", label: "Sản phẩm", icon: ShoppingCart },
   { href: "/orders", label: "Đơn hàng", icon: ShoppingCart },
+  { href: "/restock-queue", label: "Chờ nhập hàng", icon: PackageX },
   { href: "/transactions", label: "Giao dịch", icon: CreditCard },
   { href: "/customers", label: "Khách hàng", icon: Users },
   { href: "/promotions", label: "Khuyến mãi", icon: Tags },

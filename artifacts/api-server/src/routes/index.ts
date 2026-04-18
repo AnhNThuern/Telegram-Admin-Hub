@@ -12,6 +12,7 @@ import botRouter from "./bot";
 import botLogsRouter from "./bot_logs";
 import paymentsRouter from "./payments";
 import retrySweepRouter from "./retry_sweep";
+import restockQueueRouter from "./restock_queue";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(botRouter);
 router.use(botLogsRouter);
 router.use(paymentsRouter);
 router.use(retrySweepRouter);
+router.use(restockQueueRouter);
 
 export default router;

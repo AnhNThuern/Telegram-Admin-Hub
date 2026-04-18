@@ -13,6 +13,7 @@ import Products from "@/pages/products";
 import ProductStocks from "@/pages/product-stocks";
 import Orders from "@/pages/orders";
 import OrderDetails from "@/pages/order-details";
+import RestockQueue from "@/pages/restock-queue";
 import Transactions from "@/pages/transactions";
 import Customers from "@/pages/customers";
 import CustomerDetails from "@/pages/customer-details";
@@ -59,6 +60,7 @@ function Router() {
       <ProtectedRoute path="/products" component={Products} />
       <ProtectedRoute path="/products/:id/stocks" component={ProductStocks} />
       <ProtectedRoute path="/orders" component={Orders} />
+      <ProtectedRoute path="/restock-queue" component={RestockQueue} />
       <ProtectedRoute path="/orders/:id" component={OrderDetails} />
       <ProtectedRoute path="/transactions" component={Transactions} />
       <ProtectedRoute path="/transactions/:id" component={TransactionDetails} />

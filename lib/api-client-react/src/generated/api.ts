@@ -34,6 +34,7 @@ import type {
   ErrorResponse,
   GetCustomerOrdersParams,
   GetCustomerTransactionsParams,
+  GetRestockQueue200,
   HandleBotWebhookBody,
   HandleSepayWebhookBody,
   HealthStatus,
@@ -1765,6 +1766,81 @@ export function useGetOrder<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetOrderQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List orders waiting for restock (needs_manual_action), oldest first
+ */
+export const getGetRestockQueueUrl = () => {
+  return `/api/admin/restock-queue`;
+};
+
+export const getRestockQueue = async (
+  options?: RequestInit,
+): Promise<GetRestockQueue200> => {
+  return customFetch<GetRestockQueue200>(getGetRestockQueueUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRestockQueueQueryKey = () => {
+  return [`/api/admin/restock-queue`] as const;
+};
+
+export const getGetRestockQueueQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRestockQueue>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRestockQueue>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRestockQueueQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRestockQueue>>> = ({
+    signal,
+  }) => getRestockQueue({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRestockQueue>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRestockQueueQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRestockQueue>>
+>;
+export type GetRestockQueueQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List orders waiting for restock (needs_manual_action), oldest first
+ */
+
+export function useGetRestockQueue<
+  TData = Awaited<ReturnType<typeof getRestockQueue>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRestockQueue>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRestockQueueQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

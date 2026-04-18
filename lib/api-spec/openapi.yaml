@@ -478,6 +478,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /admin/restock-queue:
+    get:
+      operationId: getRestockQueue
+      tags: [orders]
+      summary: List orders waiting for restock (needs_manual_action), oldest first
+      responses:
+        "200":
+          description: Restock queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RestockQueueItem"
+                required:
+                  - data
+
   /admin/retry-sweep/status:
     get:
       operationId: getRetrySweepStatus
@@ -1079,6 +1099,65 @@ components:
         - errored
         - exhausted
         - lastSweepAt
+
+    RestockQueueItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderCode:
+          type: string
+        status:
+          type: string
+        totalAmount:
+          type: string
+        retryCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        customer:
+          nullable: true
+          type: object
+          properties:
+            id:
+              type: integer
+            firstName:
+              type: string
+              nullable: true
+            lastName:
+              type: string
+              nullable: true
+            username:
+              type: string
+              nullable: true
+            chatId:
+              type: string
+          required: [id, chatId]
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              productId:
+                type: integer
+              quantity:
+                type: integer
+              productName:
+                type: string
+                nullable: true
+            required: [id, productId, quantity]
+      required:
+        - id
+        - orderCode
+        - status
+        - totalAmount
+        - retryCount
+        - createdAt
+        - customer
+        - items
 
     RetrySweepStatus:
       type: object
