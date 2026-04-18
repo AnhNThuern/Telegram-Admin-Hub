@@ -27,6 +27,29 @@ function clearAwaitingPromo(chatId: number | string): void {
   awaitingPromoCode.delete(String(chatId));
 }
 
+// In-memory state for customers asked to type a custom quantity.
+interface AwaitingQuantity {
+  productId: number;
+  expiresAt: number;
+}
+const awaitingQuantity = new Map<string, AwaitingQuantity>();
+const QUANTITY_PROMPT_TTL_MS = 10 * 60 * 1000;
+
+function setAwaitingQuantity(chatId: number | string, productId: number): void {
+  awaitingQuantity.set(String(chatId), { productId, expiresAt: Date.now() + QUANTITY_PROMPT_TTL_MS });
+}
+function takeAwaitingQuantity(chatId: number | string): AwaitingQuantity | null {
+  const key = String(chatId);
+  const entry = awaitingQuantity.get(key);
+  if (!entry) return null;
+  awaitingQuantity.delete(key);
+  if (entry.expiresAt < Date.now()) return null;
+  return entry;
+}
+function clearAwaitingQuantity(chatId: number | string): void {
+  awaitingQuantity.delete(String(chatId));
+}
+
 interface ValidPromotion {
   id: number;
   name: string;
@@ -313,12 +336,22 @@ async function showProductDetail(chatId: number | string, productId: number): Pr
   msg += `\n🔢 Số lượng: ${product.minQuantity} - ${product.maxQuantity}`;
 
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
-  if (product.stockCount > 0) {
-    const qtys = [];
-    for (let q = product.minQuantity; q <= Math.min(product.maxQuantity, product.stockCount, 5); q++) {
-      qtys.push({ text: `${q}`, callback_data: `qty_${productId}_${q}` });
+  const minQ = product.minQuantity;
+  const maxAvailable = Math.min(product.maxQuantity, product.stockCount);
+  // Only show purchase actions when there is enough stock to satisfy the minimum quantity.
+  if (maxAvailable >= minQ) {
+    const row: Array<{ text: string; callback_data: string }> = [];
+    // Option 1: minimum quantity (usually 1)
+    row.push({ text: `${minQ}`, callback_data: `qty_${productId}_${minQ}` });
+    // Option 2: maximum available — only show if it's larger than the minimum
+    if (maxAvailable > minQ) {
+      row.push({ text: `Tối đa (${maxAvailable})`, callback_data: `qty_${productId}_${maxAvailable}` });
     }
-    if (qtys.length > 0) keyboard.push(qtys);
+    keyboard.push(row);
+    // Option 3: let the user type a custom quantity — only when there's a real range to pick from
+    if (maxAvailable > minQ) {
+      keyboard.push([{ text: "✏️ Nhập số lượng", callback_data: `qty_input_${productId}` }]);
+    }
   }
   keyboard.push([{ text: "⬅️ Quay lại", callback_data: `back_to_cat_${productId}` }]);
 
@@ -784,14 +817,51 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
       if (text === "/start") {
         clearAwaitingPromo(chatId);
+        clearAwaitingQuantity(chatId);
         await logBotAction("start", String(chatId), customer.id, "/start command");
         await showMainMenu(chatId, from.first_name);
       } else if (text.startsWith("/naptien")) {
         clearAwaitingPromo(chatId);
+        clearAwaitingQuantity(chatId);
         await handleTopup(chatId, customer, text);
       } else if (text === "/lichsu") {
         clearAwaitingPromo(chatId);
+        clearAwaitingQuantity(chatId);
         await showWalletHistory(chatId, customer);
+      } else if (awaitingQuantity.has(String(chatId)) && text.trim().length > 0) {
+        // Customer typed a custom quantity while in quantity-prompt state.
+        const pending = takeAwaitingQuantity(chatId);
+        if (!pending) {
+          await sendMessage(chatId, "⏰ Phiên nhập số lượng đã hết hạn. Vui lòng chọn lại sản phẩm.");
+        } else {
+          const { sql, count } = await import("drizzle-orm");
+          const [product] = await db.select({
+            name: productsTable.name,
+            minQuantity: productsTable.minQuantity,
+            maxQuantity: productsTable.maxQuantity,
+          }).from(productsTable).where(eq(productsTable.id, pending.productId));
+          if (!product) {
+            await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
+          } else {
+            const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${pending.productId} AND ${productStocksTable.status} = 'available'`);
+            const stockCount = Number(stockRow?.c ?? 0);
+            const maxAvailable = Math.min(product.maxQuantity, stockCount);
+            const trimmed = text.trim();
+            const qty = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : NaN;
+            if (!Number.isFinite(qty) || qty < product.minQuantity || qty > maxAvailable) {
+              // Re-arm so the customer can try again.
+              setAwaitingQuantity(chatId, pending.productId);
+              await sendMessage(
+                chatId,
+                `❌ Số lượng không hợp lệ. Vui lòng nhập một số từ <b>${product.minQuantity}</b> đến <b>${maxAvailable}</b>.`,
+                { reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${pending.productId}` }]] } }
+              );
+            } else {
+              await logBotAction("quantity_input", String(chatId), customer.id, `Custom quantity ${qty} for product ${pending.productId}`, { productId: pending.productId, quantity: qty });
+              await promptForPromoCode(chatId, customer.id, pending.productId, qty);
+            }
+          }
+        }
       } else if (awaitingPromoCode.has(String(chatId)) && text.trim().length > 0) {
         // Customer typed a promo code while in promo-prompt state.
         const pending = takeAwaitingPromo(chatId);
@@ -840,6 +910,12 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       const data = cq.data ?? "";
       await logBotAction("callback", String(chatId), customer.id, data);
 
+      // Any callback that isn't continuing the quantity-input flow exits it cleanly,
+      // so a stray text typed afterwards won't be picked up as a quantity.
+      if (!data.startsWith("qty_input_")) {
+        clearAwaitingQuantity(chatId);
+      }
+
       if (data === "main_menu") {
         await showMainMenu(chatId, from.first_name);
       } else if (data === "browse_products") {
@@ -852,10 +928,39 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         const productId = parseInt(data.replace("prod_", ""), 10);
         await showProductDetail(chatId, productId);
         await logBotAction("view_product", String(chatId), customer.id, `Product ${productId}`);
+      } else if (data.startsWith("qty_input_")) {
+        const productId = parseInt(data.replace("qty_input_", ""), 10);
+        const { sql, count } = await import("drizzle-orm");
+        const [product] = await db.select({
+          name: productsTable.name,
+          minQuantity: productsTable.minQuantity,
+          maxQuantity: productsTable.maxQuantity,
+        }).from(productsTable).where(eq(productsTable.id, productId));
+        if (!product) {
+          await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
+        } else {
+          const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
+          const stockCount = Number(stockRow?.c ?? 0);
+          const maxAvailable = Math.min(product.maxQuantity, stockCount);
+          if (maxAvailable < product.minQuantity) {
+            await sendMessage(chatId, "❌ Sản phẩm đã hết hàng.");
+          } else {
+            clearAwaitingPromo(chatId);
+            setAwaitingQuantity(chatId, productId);
+            await logBotAction("quantity_prompt", String(chatId), customer.id, `Quantity prompt for product ${productId}`, { productId, minQuantity: product.minQuantity, maxAvailable });
+            await sendMessage(
+              chatId,
+              `✏️ <b>Nhập số lượng muốn mua cho ${product.name}</b>\n` +
+              `<i>Gõ một số từ ${product.minQuantity} đến ${maxAvailable} vào ô chat.</i>`,
+              { reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] } }
+            );
+          }
+        }
       } else if (data.startsWith("qty_")) {
         const parts = data.split("_");
         const productId = parseInt(parts[1], 10);
         const quantity = parseInt(parts[2], 10);
+        clearAwaitingQuantity(chatId);
         await promptForPromoCode(chatId, customer.id, productId, quantity);
       } else if (data.startsWith("skip_promo_")) {
         const parts = data.replace("skip_promo_", "").split("_");
