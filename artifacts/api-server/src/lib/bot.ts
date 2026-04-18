@@ -306,7 +306,9 @@ export async function deliverOrder(orderId: number): Promise<boolean> {
 
     // Alert admin about the out-of-stock situation
     const customerName = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || customer.username || `ID:${customer.id}`;
-    const adminBaseUrl = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "";
+    const adminBaseUrl = process.env.ADMIN_BASE_URL
+      || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}` : "")
+      || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "");
     const orderLink = adminBaseUrl ? `\n🔗 <a href="${adminBaseUrl}/orders/${orderId}">Xem đơn hàng trong Admin Panel</a>` : "";
     const adminMsg =
       `❌ <b>Giao hàng thất bại — hết hàng</b>\n\n` +

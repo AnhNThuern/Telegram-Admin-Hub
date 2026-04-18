@@ -48,15 +48,22 @@ router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (
 
   const existing = await getConfig();
   let config;
+
+  // Detect masked token (returned by GET /bot/config) — if unchanged, skip token update and preserve connection state
+  const isMaskedToken = botToken?.includes("****") ?? false;
+  const tokenChanged = !isMaskedToken;
+
   if (existing) {
-    const updateData: Record<string, unknown> = {
-      botToken,
-      isConnected: false,
-      webhookStatus: "not_set",
-      botUsername: null,
-      webhookUrl: null,
-      webhookSecretToken: null,
-    };
+    const updateData: Record<string, unknown> = {};
+    if (tokenChanged) {
+      // New real token provided: update token and reset bot connection
+      updateData.botToken = botToken;
+      updateData.isConnected = false;
+      updateData.webhookStatus = "not_set";
+      updateData.botUsername = null;
+      updateData.webhookUrl = null;
+      updateData.webhookSecretToken = null;
+    }
     if (adminChatId !== undefined) updateData.adminChatId = adminChatId;
     const [c] = await db.update(botConfigsTable)
       .set(updateData)
@@ -65,7 +72,7 @@ router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (
     config = c;
   } else {
     const [c] = await db.insert(botConfigsTable)
-      .values({ botToken, isConnected: false, webhookStatus: "not_set", adminChatId: adminChatId ?? null })
+      .values({ botToken: isMaskedToken ? null : botToken, isConnected: false, webhookStatus: "not_set", adminChatId: adminChatId ?? null })
       .returning();
     config = c;
   }

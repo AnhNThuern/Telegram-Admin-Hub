@@ -112,7 +112,9 @@ export async function handleSepayWebhook(payload: Record<string, unknown>): Prom
       }
     }
 
-    const adminBaseUrl = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "";
+    const adminBaseUrl = process.env.ADMIN_BASE_URL
+      || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}` : "")
+      || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "");
     const orderLink = failedOrder && adminBaseUrl ? `\n🔗 <a href="${adminBaseUrl}/orders/${failedOrder.id}">Xem đơn hàng trong Admin Panel</a>` : "";
 
     const adminMsg =
