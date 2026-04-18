@@ -167,7 +167,7 @@ router.get("/products/:id/stocks", requireAuth, validateParams(ListProductStocks
 const RESTOCK_MAX_RETRY_COUNT = 10;
 const RESTOCK_MAX_ORDER_AGE_DAYS = 7;
 
-async function retryStuckOrdersForProduct(productId: number): Promise<void> {
+export async function retryStuckOrdersForProduct(productId: number): Promise<void> {
   try {
     const stuckStatuses = ["needs_manual_action", "confirmed_not_delivered"];
     const ageThreshold = new Date(Date.now() - RESTOCK_MAX_ORDER_AGE_DAYS * 24 * 60 * 60 * 1000);
