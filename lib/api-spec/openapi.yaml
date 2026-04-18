@@ -3,20 +3,44 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Telegram Shop Admin API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: dashboard
+    description: Dashboard statistics
+  - name: categories
+    description: Category management
+  - name: products
+    description: Product management
+  - name: stocks
+    description: Stock management
+  - name: orders
+    description: Order management
+  - name: transactions
+    description: Transaction management
+  - name: customers
+    description: Customer management
+  - name: promotions
+    description: Promotion management
+  - name: bot
+    description: Telegram bot configuration
+  - name: bot-logs
+    description: Bot activity logs
+  - name: payments
+    description: Payment configuration
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +48,952 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── Auth ────────────────────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Admin logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current admin
+      responses:
+        "200":
+          description: Current admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Dashboard ───────────────────────────────────────────────────────────────
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  # ─── Categories ──────────────────────────────────────────────────────────────
+  /categories:
+    get:
+      operationId: listCategories
+      tags: [categories]
+      summary: List all categories
+      responses:
+        "200":
+          description: List of categories
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryList"
+    post:
+      operationId: createCategory
+      tags: [categories]
+      summary: Create a category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCategoryRequest"
+      responses:
+        "201":
+          description: Category created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+
+  /categories/{id}:
+    get:
+      operationId: getCategory
+      tags: [categories]
+      summary: Get a category
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Category
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateCategory
+      tags: [categories]
+      summary: Update a category
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCategoryRequest"
+      responses:
+        "200":
+          description: Updated category
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteCategory
+      tags: [categories]
+      summary: Delete a category
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Products ────────────────────────────────────────────────────────────────
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: List products
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: categoryId
+          in: query
+          schema:
+            type: integer
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Product list with pagination
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductListResponse"
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Create a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProductRequest"
+      responses:
+        "200":
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteProduct
+      tags: [products]
+      summary: Delete a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Stocks ──────────────────────────────────────────────────────────────────
+  /products/{id}/stocks:
+    get:
+      operationId: listProductStocks
+      tags: [stocks]
+      summary: List stocks for a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stock list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockList"
+    post:
+      operationId: addProductStocks
+      tags: [stocks]
+      summary: Add stock lines to a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddStocksRequest"
+      responses:
+        "201":
+          description: Stocks added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddStocksResponse"
+
+  /stocks/{id}:
+    delete:
+      operationId: deleteStock
+      tags: [stocks]
+      summary: Delete a stock line
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Orders ──────────────────────────────────────────────────────────────────
+  /orders:
+    get:
+      operationId: listOrders
+      tags: [orders]
+      summary: List orders
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: customerId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Order list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      tags: [orders]
+      summary: Get order detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Order detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Transactions ─────────────────────────────────────────────────────────────
+  /transactions:
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List transactions
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionListResponse"
+
+  /transactions/{id}:
+    get:
+      operationId: getTransaction
+      tags: [transactions]
+      summary: Get transaction detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Transaction detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Customers ────────────────────────────────────────────────────────────────
+  /customers:
+    get:
+      operationId: listCustomers
+      tags: [customers]
+      summary: List customers
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Customer list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerListResponse"
+
+  /customers/{id}:
+    get:
+      operationId: getCustomer
+      tags: [customers]
+      summary: Get customer detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /customers/{id}/orders:
+    get:
+      operationId: getCustomerOrders
+      tags: [customers]
+      summary: Get customer order history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Customer orders
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+
+  /customers/{id}/transactions:
+    get:
+      operationId: getCustomerTransactions
+      tags: [customers]
+      summary: Get customer transaction history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Customer transactions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionListResponse"
+
+  /customers/{id}/disable:
+    post:
+      operationId: disableCustomer
+      tags: [customers]
+      summary: Disable a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /customers/{id}/add-balance:
+    post:
+      operationId: addCustomerBalance
+      tags: [customers]
+      summary: Add balance to customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddBalanceRequest"
+      responses:
+        "200":
+          description: Balance added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Promotions ───────────────────────────────────────────────────────────────
+  /promotions:
+    get:
+      operationId: listPromotions
+      tags: [promotions]
+      summary: List promotions
+      responses:
+        "200":
+          description: Promotion list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromotionList"
+    post:
+      operationId: createPromotion
+      tags: [promotions]
+      summary: Create a promotion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePromotionRequest"
+      responses:
+        "201":
+          description: Promotion created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Promotion"
+
+  /promotions/{id}:
+    get:
+      operationId: getPromotion
+      tags: [promotions]
+      summary: Get a promotion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Promotion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Promotion"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updatePromotion
+      tags: [promotions]
+      summary: Update a promotion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePromotionRequest"
+      responses:
+        "200":
+          description: Updated promotion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Promotion"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deletePromotion
+      tags: [promotions]
+      summary: Delete a promotion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Bot Config ───────────────────────────────────────────────────────────────
+  /bot/config:
+    get:
+      operationId: getBotConfig
+      tags: [bot]
+      summary: Get bot configuration
+      responses:
+        "200":
+          description: Bot config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotConfig"
+    post:
+      operationId: saveBotConfig
+      tags: [bot]
+      summary: Save bot configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveBotConfigRequest"
+      responses:
+        "200":
+          description: Config saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotConfig"
+
+  /bot/test-token:
+    post:
+      operationId: testBotToken
+      tags: [bot]
+      summary: Test bot token with Telegram API
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestTokenRequest"
+      responses:
+        "200":
+          description: Token test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestTokenResponse"
+
+  /bot/set-webhook:
+    post:
+      operationId: setBotWebhook
+      tags: [bot]
+      summary: Set Telegram webhook
+      responses:
+        "200":
+          description: Webhook set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /bot/disconnect:
+    post:
+      operationId: disconnectBot
+      tags: [bot]
+      summary: Disconnect and clear bot config
+      responses:
+        "200":
+          description: Bot disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /bot/webhook:
+    post:
+      operationId: handleBotWebhook
+      tags: [bot]
+      summary: Telegram webhook handler
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook received
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  # ─── Bot Logs ─────────────────────────────────────────────────────────────────
+  /bot-logs:
+    get:
+      operationId: listBotLogs
+      tags: [bot-logs]
+      summary: List bot logs
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: level
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Bot log list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotLogListResponse"
+
+  # ─── Payment Config ───────────────────────────────────────────────────────────
+  /payments/config:
+    get:
+      operationId: getPaymentConfig
+      tags: [payments]
+      summary: Get payment configuration (sensitive fields masked)
+      responses:
+        "200":
+          description: Payment config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentConfig"
+    post:
+      operationId: savePaymentConfig
+      tags: [payments]
+      summary: Save payment configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavePaymentConfigRequest"
+      responses:
+        "200":
+          description: Config saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentConfig"
+
+  /payments/sepay/webhook:
+    post:
+      operationId: handleSepayWebhook
+      tags: [payments]
+      summary: SePay payment webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +1004,974 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - username
+        - createdAt
+
+    DashboardStats:
+      type: object
+      properties:
+        totalProducts:
+          type: integer
+        totalOrders:
+          type: integer
+        totalCustomers:
+          type: integer
+        totalRevenue:
+          type: string
+        recentOrders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderSummary"
+        newCustomers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Customer"
+      required:
+        - totalProducts
+        - totalOrders
+        - totalCustomers
+        - totalRevenue
+        - recentOrders
+        - newCustomers
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        icon:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - isActive
+        - createdAt
+        - updatedAt
+
+    CategoryList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+      required:
+        - data
+
+    CreateCategoryRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        icon:
+          type: string
+        isActive:
+          type: boolean
+      required:
+        - name
+
+    UpdateCategoryRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        icon:
+          type: string
+        isActive:
+          type: boolean
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        categoryId:
+          type: integer
+          nullable: true
+        categoryIcon:
+          type: string
+          nullable: true
+        productIcon:
+          type: string
+          nullable: true
+        price:
+          type: string
+        originalPrice:
+          type: string
+          nullable: true
+        productType:
+          type: string
+        minQuantity:
+          type: integer
+        maxQuantity:
+          type: integer
+        isActive:
+          type: boolean
+        stockCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - price
+        - productType
+        - minQuantity
+        - maxQuantity
+        - isActive
+        - stockCount
+        - createdAt
+        - updatedAt
+
+    ProductDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        categoryId:
+          type: integer
+          nullable: true
+        categoryIcon:
+          type: string
+          nullable: true
+        productIcon:
+          type: string
+          nullable: true
+        price:
+          type: string
+        originalPrice:
+          type: string
+          nullable: true
+        productType:
+          type: string
+        minQuantity:
+          type: integer
+        maxQuantity:
+          type: integer
+        isActive:
+          type: boolean
+        stockCount:
+          type: integer
+        category:
+          $ref: "#/components/schemas/Category"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - price
+        - productType
+        - minQuantity
+        - maxQuantity
+        - isActive
+        - stockCount
+        - createdAt
+        - updatedAt
+
+    ProductListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    CreateProductRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        categoryId:
+          type: integer
+        categoryIcon:
+          type: string
+        productIcon:
+          type: string
+        price:
+          type: string
+        originalPrice:
+          type: string
+        productType:
+          type: string
+        minQuantity:
+          type: integer
+        maxQuantity:
+          type: integer
+        isActive:
+          type: boolean
+      required:
+        - name
+        - price
+
+    UpdateProductRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        categoryId:
+          type: integer
+        categoryIcon:
+          type: string
+        productIcon:
+          type: string
+        price:
+          type: string
+        originalPrice:
+          type: string
+        productType:
+          type: string
+        minQuantity:
+          type: integer
+        maxQuantity:
+          type: integer
+        isActive:
+          type: boolean
+
+    Stock:
+      type: object
+      properties:
+        id:
+          type: integer
+        productId:
+          type: integer
+        content:
+          type: string
+        status:
+          type: string
+        orderId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - productId
+        - content
+        - status
+        - createdAt
+        - updatedAt
+
+    StockList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Stock"
+        availableCount:
+          type: integer
+        totalCount:
+          type: integer
+      required:
+        - data
+        - availableCount
+        - totalCount
+
+    AddStocksRequest:
+      type: object
+      properties:
+        lines:
+          type: array
+          items:
+            type: string
+      required:
+        - lines
+
+    AddStocksResponse:
+      type: object
+      properties:
+        added:
+          type: integer
+        message:
+          type: string
+      required:
+        - added
+        - message
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderCode:
+          type: string
+        customerId:
+          type: integer
+        totalAmount:
+          type: string
+        status:
+          type: string
+        paymentReference:
+          type: string
+          nullable: true
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - orderCode
+        - customerId
+        - totalAmount
+        - status
+        - createdAt
+        - updatedAt
+
+    OrderSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderCode:
+          type: string
+        totalAmount:
+          type: string
+        status:
+          type: string
+        customerName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - orderCode
+        - totalAmount
+        - status
+        - createdAt
+
+    OrderItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderId:
+          type: integer
+        productId:
+          type: integer
+        productName:
+          type: string
+        quantity:
+          type: integer
+        unitPrice:
+          type: string
+        totalPrice:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - orderId
+        - productId
+        - productName
+        - quantity
+        - unitPrice
+        - totalPrice
+        - createdAt
+
+    OrderDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderCode:
+          type: string
+        customerId:
+          type: integer
+        totalAmount:
+          type: string
+        status:
+          type: string
+        paymentReference:
+          type: string
+          nullable: true
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        customer:
+          $ref: "#/components/schemas/Customer"
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+        transaction:
+          $ref: "#/components/schemas/Transaction"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - orderCode
+        - customerId
+        - totalAmount
+        - status
+        - items
+        - createdAt
+        - updatedAt
+
+    OrderListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Order"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+        transactionCode:
+          type: string
+        paymentReference:
+          type: string
+          nullable: true
+        type:
+          type: string
+        orderId:
+          type: integer
+          nullable: true
+        customerId:
+          type: integer
+          nullable: true
+        amount:
+          type: string
+        status:
+          type: string
+        provider:
+          type: string
+          nullable: true
+        rawPayload:
+          type: string
+          nullable: true
+        confirmedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - transactionCode
+        - type
+        - amount
+        - status
+        - createdAt
+        - updatedAt
+
+    TransactionListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    Customer:
+      type: object
+      properties:
+        id:
+          type: integer
+        chatId:
+          type: string
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        username:
+          type: string
+          nullable: true
+        balance:
+          type: string
+        totalSpent:
+          type: string
+        totalOrders:
+          type: integer
+        lastActiveAt:
+          type: string
+          format: date-time
+          nullable: true
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - chatId
+        - balance
+        - totalSpent
+        - totalOrders
+        - isActive
+        - createdAt
+        - updatedAt
+
+    CustomerListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Customer"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    AddBalanceRequest:
+      type: object
+      properties:
+        amount:
+          type: string
+        note:
+          type: string
+      required:
+        - amount
+
+    Promotion:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        type:
+          type: string
+        appliesTo:
+          type: string
+        categoryId:
+          type: integer
+          nullable: true
+        productId:
+          type: integer
+          nullable: true
+        customerTarget:
+          type: string
+        customerId:
+          type: integer
+          nullable: true
+        tiers:
+          nullable: true
+        startDate:
+          type: string
+          format: date-time
+          nullable: true
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+        priority:
+          type: integer
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - type
+        - appliesTo
+        - customerTarget
+        - priority
+        - isActive
+        - createdAt
+        - updatedAt
+
+    PromotionList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Promotion"
+      required:
+        - data
+
+    CreatePromotionRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        appliesTo:
+          type: string
+        categoryId:
+          type: integer
+        productId:
+          type: integer
+        customerTarget:
+          type: string
+        customerId:
+          type: integer
+        tiers:
+          type: object
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        priority:
+          type: integer
+        isActive:
+          type: boolean
+      required:
+        - name
+        - type
+
+    UpdatePromotionRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        appliesTo:
+          type: string
+        categoryId:
+          type: integer
+        productId:
+          type: integer
+        customerTarget:
+          type: string
+        customerId:
+          type: integer
+        tiers:
+          type: object
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        priority:
+          type: integer
+        isActive:
+          type: boolean
+
+    BotConfig:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: true
+        botToken:
+          type: string
+          nullable: true
+        botUsername:
+          type: string
+          nullable: true
+        webhookUrl:
+          type: string
+          nullable: true
+        isConnected:
+          type: boolean
+        webhookStatus:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - isConnected
+
+    SaveBotConfigRequest:
+      type: object
+      properties:
+        botToken:
+          type: string
+      required:
+        - botToken
+
+    TestTokenRequest:
+      type: object
+      properties:
+        token:
+          type: string
+      required:
+        - token
+
+    TestTokenResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        username:
+          type: string
+          nullable: true
+        firstName:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+      required:
+        - valid
+
+    BotLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+        customerId:
+          type: integer
+          nullable: true
+        chatId:
+          type: string
+          nullable: true
+        content:
+          type: string
+          nullable: true
+        metadata:
+          nullable: true
+        level:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - action
+        - level
+        - createdAt
+
+    BotLogListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/BotLog"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - data
+        - total
+        - page
+        - limit
+
+    PaymentConfig:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: true
+        provider:
+          type: string
+        bankName:
+          type: string
+          nullable: true
+        accountNumber:
+          type: string
+          nullable: true
+        accountHolder:
+          type: string
+          nullable: true
+        webhookSecret:
+          type: string
+          nullable: true
+        apiKey:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - provider
+        - isActive
+
+    SavePaymentConfigRequest:
+      type: object
+      properties:
+        bankName:
+          type: string
+        accountNumber:
+          type: string
+        accountHolder:
+          type: string
+        webhookSecret:
+          type: string
+        apiKey:
+          type: string
+        isActive:
+          type: boolean
