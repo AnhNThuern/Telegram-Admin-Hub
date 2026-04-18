@@ -37,7 +37,14 @@ export async function createPaymentRequest(orderId: number): Promise<{
 
   const config = await getPaymentConfig();
 
-  const reference = `SHOP${orderId}${Date.now().toString(36).toUpperCase()}`;
+  // Use the order code itself as the payment reference so customers (and
+  // admins) can match a SePay transfer back to the order at a glance. The
+  // order code already follows the SePay-friendly "DH" + alphanumeric format
+  // and is unique per order, so no extra suffix is needed. Fall back to the
+  // legacy SHOP{id}{ts} format only if a code is somehow missing.
+  const reference = order.orderCode && order.orderCode.length > 0
+    ? order.orderCode
+    : `SHOP${orderId}${Date.now().toString(36).toUpperCase()}`;
 
   await db.update(ordersTable).set({ paymentReference: reference }).where(eq(ordersTable.id, orderId));
 
@@ -132,10 +139,11 @@ export async function handleSepayWebhook(payload: Record<string, unknown>): Prom
     return;
   }
 
-  // Extract payment reference from description
-  // Order reference format: SHOP{orderId}{base36timestamp}
-  // Topup reference format: TOPUP{customerId}{base36timestamp}
-  const refMatch = description.match(/(?:SHOP|TOPUP)\d+[A-Z0-9]+/);
+  // Extract payment reference from description. Supported formats:
+  //   - DH{8 alphanumeric} — current order code (also used as payment ref)
+  //   - SHOP{orderId}{base36timestamp} — legacy order reference
+  //   - TOPUP{customerId}{base36timestamp} — wallet top-up reference
+  const refMatch = description.match(/DH[A-Z0-9]{8}|(?:SHOP|TOPUP)\d+[A-Z0-9]+/);
   if (!refMatch) {
     logger.warn({ description }, "No payment reference found in SePay webhook description");
     return;
