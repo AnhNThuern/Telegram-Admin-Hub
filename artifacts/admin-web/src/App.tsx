@@ -20,6 +20,7 @@ import Promotions from "@/pages/promotions";
 import SettingsBot from "@/pages/settings-bot";
 import SettingsPayments from "@/pages/settings-payments";
 import BotLogs from "@/pages/bot-logs";
+import TransactionDetails from "@/pages/transaction-details";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,12 +31,15 @@ const queryClient = new QueryClient({
   },
 });
 
-function ProtectedRoute({ component: Component, ...rest }: any) {
+type PageProps = { params: Record<string, string> };
+type PageComponent = React.ComponentType<PageProps>;
+
+function ProtectedRoute({ component: Component, path }: { component: PageComponent; path: string }) {
   return (
-    <Route {...rest}>
+    <Route path={path}>
       {params => (
         <AppLayout>
-          <Component params={params} />
+          <Component params={params as Record<string, string>} />
         </AppLayout>
       )}
     </Route>
@@ -57,6 +61,7 @@ function Router() {
       <ProtectedRoute path="/orders" component={Orders} />
       <ProtectedRoute path="/orders/:id" component={OrderDetails} />
       <ProtectedRoute path="/transactions" component={Transactions} />
+      <ProtectedRoute path="/transactions/:id" component={TransactionDetails} />
       <ProtectedRoute path="/customers" component={Customers} />
       <ProtectedRoute path="/customers/:id" component={CustomerDetails} />
       <ProtectedRoute path="/promotions" component={Promotions} />

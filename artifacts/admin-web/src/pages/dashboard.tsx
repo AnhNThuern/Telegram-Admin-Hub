@@ -1,13 +1,18 @@
 import { useGetDashboardStats } from "@workspace/api-client-react";
 import { formatVND } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { 
-  Package, 
-  ShoppingCart, 
-  Users, 
+import { Button } from "@/components/ui/button";
+import { Link } from "wouter";
+import {
+  Package,
+  ShoppingCart,
+  Users,
   CreditCard,
   ArrowUpRight,
-  Loader2
+  Loader2,
+  Plus,
+  Bot,
+  Wallet,
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -25,9 +30,31 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Tổng quan</h1>
-        <p className="text-muted-foreground mt-1">Hoạt động kinh doanh hôm nay.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Tổng quan</h1>
+          <p className="text-muted-foreground mt-1">Hoạt động kinh doanh hôm nay.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href="/products">
+            <Button size="sm" variant="outline" data-testid="btn-quick-add-product">
+              <Plus className="h-4 w-4 mr-2" />
+              Thêm sản phẩm
+            </Button>
+          </Link>
+          <Link href="/settings/bot">
+            <Button size="sm" variant="outline" data-testid="btn-quick-bot-config">
+              <Bot className="h-4 w-4 mr-2" />
+              Cấu hình Bot
+            </Button>
+          </Link>
+          <Link href="/settings/payments">
+            <Button size="sm" variant="outline" data-testid="btn-quick-payment-config">
+              <Wallet className="h-4 w-4 mr-2" />
+              Thanh toán
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

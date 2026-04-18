@@ -1,4 +1,4 @@
-import { useListCategories, useCreateCategory, useUpdateCategory, useDeleteCategory, getListCategoriesQueryKey } from "@workspace/api-client-react";
+import { useListCategories, useCreateCategory, useUpdateCategory, useDeleteCategory, getListCategoriesQueryKey, Category } from "@workspace/api-client-react";
 import { useState } from "react";
 import { formatVND } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,7 +68,7 @@ export default function Categories() {
     }
   };
 
-  const handleEdit = (category: any) => {
+  const handleEdit = (category: Category) => {
     setEditingId(category.id);
     form.reset({ name: category.name, isActive: category.isActive });
     setIsAddOpen(true);

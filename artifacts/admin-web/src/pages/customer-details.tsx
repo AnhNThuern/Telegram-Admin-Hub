@@ -1,4 +1,4 @@
-import { useGetCustomer, useGetCustomerOrders, useGetCustomerTransactions, useDisableCustomer, useAddCustomerBalance, getGetCustomerQueryKey, getGetCustomerTransactionsQueryKey } from "@workspace/api-client-react";
+import { useGetCustomer, useGetCustomerOrders, useGetCustomerTransactions, useDisableCustomer, useAddCustomerBalance, getGetCustomerQueryKey, getGetCustomerTransactionsQueryKey, getGetCustomerOrdersQueryKey } from "@workspace/api-client-react";
 import { useState } from "react";
 import { formatVND, formatDate } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,14 +25,14 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
     page: 1,
     limit: 10
   }, {
-    query: { enabled: !!customerId }
+    query: { enabled: !!customerId, queryKey: getGetCustomerTransactionsQueryKey(customerId, { page: 1, limit: 10 }) }
   });
 
   const { data: orders } = useGetCustomerOrders(customerId, {
     page: 1,
     limit: 10
   }, {
-    query: { enabled: !!customerId }
+    query: { enabled: !!customerId, queryKey: getGetCustomerOrdersQueryKey(customerId, { page: 1, limit: 10 }) }
   });
 
   const disableCustomer = useDisableCustomer();
@@ -45,7 +45,7 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
   const handleToggleStatus = () => {
     if (!customer) return;
     disableCustomer.mutate(
-      { id: customerId, data: { isActive: !customer.isActive } },
+      { id: customerId },
       {
         onSuccess: () => {
           toast({ title: customer.isActive ? "Đã khóa khách hàng" : "Đã mở khóa khách hàng" });

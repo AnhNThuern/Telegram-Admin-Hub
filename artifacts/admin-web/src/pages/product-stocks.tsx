@@ -1,4 +1,4 @@
-import { useListProductStocks, useAddProductStocks, useDeleteStock, getListProductStocksQueryKey, useGetProduct } from "@workspace/api-client-react";
+import { useListProductStocks, useAddProductStocks, useDeleteStock, getListProductStocksQueryKey, useGetProduct, getGetProductQueryKey } from "@workspace/api-client-react";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,13 +17,13 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
   const [status, setStatus] = useState<string>("all");
   
   const { data: product } = useGetProduct(productId, {
-    query: { enabled: !!productId }
+    query: { enabled: !!productId, queryKey: getGetProductQueryKey(productId) }
   });
 
   const { data: stockList, isLoading } = useListProductStocks(productId, {
     status: status !== "all" ? status : undefined,
   }, {
-    query: { enabled: !!productId }
+    query: { enabled: !!productId, queryKey: getListProductStocksQueryKey(productId, { status: status !== "all" ? status : undefined }) }
   });
 
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -39,7 +39,7 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
     const lines = stockLines.split("\n").filter(line => line.trim().length > 0);
     
     addStocks.mutate(
-      { productId, data: { lines } },
+      { id: productId, data: { lines } },
       {
         onSuccess: (res) => {
           toast({ title: `Đã thêm ${res.added} kho số mới` });
@@ -54,7 +54,7 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
   const handleDelete = (stockId: number) => {
     if (!confirm("Bạn có chắc chắn muốn xóa kho số này?")) return;
     deleteStock.mutate(
-      { productId, id: stockId },
+      { id: stockId },
       {
         onSuccess: () => {
           toast({ title: "Đã xóa kho số" });

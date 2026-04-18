@@ -1,4 +1,5 @@
 import { useListTransactions } from "@workspace/api-client-react";
+import { Link } from "wouter";
 import { useState } from "react";
 import { formatVND, formatDate } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -85,7 +86,11 @@ export default function Transactions() {
               <TableBody>
                 {transactionList?.data?.map((tx) => (
                   <TableRow key={tx.id} data-testid={`row-tx-${tx.id}`}>
-                    <TableCell className="font-mono font-medium">{tx.transactionCode}</TableCell>
+                    <TableCell className="font-mono font-medium">
+                      <Link href={`/transactions/${tx.id}`} className="hover:text-primary transition-colors" data-testid={`link-tx-${tx.id}`}>
+                        {tx.transactionCode}
+                      </Link>
+                    </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{tx.customerId || "N/A"}</TableCell>
                     <TableCell>
                       <span className="text-sm">
