@@ -99,6 +99,26 @@ export async function sendAdminAlert(message: string, metadata?: Record<string, 
   }
 }
 
+/**
+ * Send an informational notification to the admin's Telegram chat (success/info level).
+ * If no adminChatId is configured, logs the notification to bot_logs only.
+ */
+export async function sendAdminNotification(message: string, metadata?: Record<string, unknown>): Promise<void> {
+  const adminChatId = await getAdminChatId();
+
+  await logBotAction("admin_notification", adminChatId ?? undefined, undefined, message, metadata, "info");
+
+  if (!adminChatId) {
+    logger.info({ message, metadata }, "Admin notification skipped — no adminChatId configured");
+    return;
+  }
+
+  const sent = await sendMessage(adminChatId, `ℹ️ <b>Thông báo Admin</b>\n\n${message}`);
+  if (!sent) {
+    logger.warn({ adminChatId, message }, "Failed to deliver admin notification via Telegram");
+  }
+}
+
 async function upsertCustomer(from: { id: number; first_name?: string; last_name?: string; username?: string }): Promise<typeof customersTable.$inferSelect> {
   const chatId = String(from.id);
   const [existing] = await db.select().from(customersTable).where(eq(customersTable.chatId, chatId));

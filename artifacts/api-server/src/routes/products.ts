@@ -1,9 +1,9 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, and, sql, count } from "drizzle-orm";
+import { eq, ilike, and, sql, count, or } from "drizzle-orm";
 import { db, productsTable, productStocksTable, categoriesTable, ordersTable, orderItemsTable, botLogsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateBody, validateParams, validateQuery } from "../middlewares/validate";
-import { deliverOrder } from "../lib/bot";
+import { deliverOrder, sendAdminNotification } from "../lib/bot";
 import { logger } from "../lib/logger";
 import {
   ListProductsQueryParams,
@@ -155,11 +155,17 @@ router.get("/products/:id/stocks", requireAuth, validateParams(ListProductStocks
 
 async function retryStuckOrdersForProduct(productId: number): Promise<void> {
   try {
+    const stuckStatuses = ["needs_manual_action", "confirmed_not_delivered"];
     const stuckOrders = await db
-      .selectDistinct({ orderId: ordersTable.id, orderCode: ordersTable.orderCode })
+      .selectDistinct({ orderId: ordersTable.id, orderCode: ordersTable.orderCode, status: ordersTable.status })
       .from(ordersTable)
       .innerJoin(orderItemsTable, eq(orderItemsTable.orderId, ordersTable.id))
-      .where(and(eq(ordersTable.status, "needs_manual_action"), eq(orderItemsTable.productId, productId)));
+      .where(
+        and(
+          or(...stuckStatuses.map(s => eq(ordersTable.status, s))),
+          eq(orderItemsTable.productId, productId)
+        )
+      );
 
     if (stuckOrders.length === 0) return;
 
@@ -170,22 +176,34 @@ async function retryStuckOrdersForProduct(productId: number): Promise<void> {
       level: "info",
     });
 
-    for (const { orderId, orderCode } of stuckOrders) {
+    for (const { orderId, orderCode, status } of stuckOrders) {
       const [updated] = await db
         .update(ordersTable)
         .set({ status: "paid" })
-        .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "needs_manual_action")))
+        .where(and(eq(ordersTable.id, orderId), or(...stuckStatuses.map(s => eq(ordersTable.status, s)))))
         .returning({ id: ordersTable.id });
 
       if (!updated) continue;
 
       const success = await deliverOrder(orderId);
+
       await db.insert(botLogsTable).values({
         action: success ? "restock_retry_delivered" : "restock_retry_failed",
         content: `Restock retry for order ${orderCode} (id=${orderId}): ${success ? "delivered" : "failed"}`,
         metadata: { productId, orderId },
         level: success ? "info" : "error",
       });
+
+      if (success) {
+        await sendAdminNotification(
+          `✅ <b>Tự động giao hàng thành công sau khi nhập kho</b>\n\n` +
+          `📦 Đơn hàng: <code>${orderCode}</code>\n` +
+          `🔄 Trạng thái trước: ${status}\n` +
+          `🛍️ Sản phẩm ID: ${productId}\n\n` +
+          `Đơn hàng đã được giao tự động khi hàng được nhập lại.`,
+          { productId, orderId, previousStatus: status }
+        );
+      }
     }
   } catch (err) {
     logger.error({ err }, "Error retrying stuck orders after restock");
