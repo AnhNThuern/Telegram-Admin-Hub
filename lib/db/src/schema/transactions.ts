@@ -15,6 +15,7 @@ export const transactionsTable = pgTable("transactions", {
   status: text("status").notNull().default("pending"),
   provider: text("provider").default("sepay"),
   rawPayload: text("raw_payload"),
+  notes: text("notes"),
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

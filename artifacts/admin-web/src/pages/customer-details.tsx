@@ -66,7 +66,8 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
       { id: customerId, data: { amount: balanceAmount, note: balanceNote } },
       {
         onSuccess: () => {
-          toast({ title: "Đã cộng số dư" });
+          const parsed = parseFloat(balanceAmount);
+          toast({ title: parsed >= 0 ? "Đã cộng số dư" : "Đã trừ số dư" });
           setIsAddBalanceOpen(false);
           setBalanceAmount("");
           setBalanceNote("");
@@ -195,6 +196,7 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
                   placeholder="Lý do cộng/trừ tiền" 
                   value={balanceNote}
                   onChange={(e) => setBalanceNote(e.target.value)}
+                  data-testid="input-balance-note"
                 />
               </div>
               <Button 
@@ -296,7 +298,8 @@ export default function CustomerDetails({ params }: { params: { id: string } }) 
                         {tx.type === 'deposit' ? 'Nạp tiền' : 
                          tx.type === 'purchase' ? 'Mua hàng' : 
                          tx.type === 'refund' ? 'Hoàn tiền' :
-                         tx.type === 'manual_credit' ? 'Cộng thủ công' : tx.type}
+                         tx.type === 'manual_credit' ? 'Cộng thủ công' :
+                         tx.type === 'adjustment' ? 'Điều chỉnh' : tx.type}
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${

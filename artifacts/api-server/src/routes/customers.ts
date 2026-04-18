@@ -14,6 +14,7 @@ import {
   AddCustomerBalanceParams,
   AddCustomerBalanceBody,
 } from "@workspace/api-zod";
+import { sendMessageToCustomer } from "../lib/bot";
 import type z from "zod";
 
 const router: IRouter = Router();
@@ -80,16 +81,40 @@ router.post("/customers/:id/disable", requireAuth, validateParams(DisableCustome
 
 router.post("/customers/:id/add-balance", requireAuth, validateParams(AddCustomerBalanceParams), validateBody(AddCustomerBalanceBody), async (req, res): Promise<void> => {
   const { id } = req.params as unknown as z.infer<typeof AddCustomerBalanceParams>;
-  const { amount } = req.body as z.infer<typeof AddCustomerBalanceBody>;
+  const { amount, note } = req.body as z.infer<typeof AddCustomerBalanceBody>;
+  const parsedAmount = parseFloat(String(amount));
+
   const [customer] = await db
     .update(customersTable)
-    .set({ balance: sql`balance + ${parseFloat(String(amount))}` })
+    .set({ balance: sql`balance + ${parsedAmount}` })
     .where(eq(customersTable.id, id))
     .returning();
+
   if (!customer) {
     res.status(404).json({ error: "Customer not found" });
     return;
   }
+
+  const transactionCode = `ADJ-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  await db.insert(transactionsTable).values({
+    transactionCode,
+    customerId: id,
+    amount: parsedAmount.toFixed(2),
+    type: "adjustment",
+    status: "completed",
+    notes: note ?? null,
+    confirmedAt: new Date(),
+  });
+
+  const amountFormatted = Math.abs(parsedAmount).toLocaleString("vi-VN");
+  const isCredit = parsedAmount >= 0;
+  let notifMsg = isCredit
+    ? `💰 <b>Số dư ví của bạn đã được cộng thêm ${amountFormatted}đ</b>`
+    : `💸 <b>Số dư ví của bạn đã bị trừ ${amountFormatted}đ</b>`;
+  notifMsg += `\n💼 Số dư hiện tại: <b>${parseFloat(customer.balance).toLocaleString("vi-VN")}đ</b>`;
+  if (note) notifMsg += `\n📝 Lý do: ${note}`;
+  await sendMessageToCustomer(customer.chatId, notifMsg);
+
   res.json(customer);
 });
 
