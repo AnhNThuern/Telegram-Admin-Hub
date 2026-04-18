@@ -370,8 +370,40 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
     return;
   }
 
-  const { createPaymentRequest } = await import("./payments");
-  const paymentInfo = await createPaymentRequest(orderId);
+  const { createPaymentRequest, getPaymentConfig, buildSepayQrUrl } = await import("./payments");
+
+  // Reuse an existing pending bank-payment transaction to avoid creating duplicate references
+  const [existingTxn] = await db.select()
+    .from(transactionsTable)
+    .where(and(
+      eq(transactionsTable.orderId, orderId),
+      eq(transactionsTable.type, "payment"),
+      eq(transactionsTable.status, "pending"),
+    ))
+    .limit(1);
+
+  let paymentInfo: { bankName: string; accountNumber: string; accountHolder: string; reference: string; qrUrl: string | null } | null = null;
+
+  if (existingTxn?.paymentReference) {
+    const config = await getPaymentConfig();
+    if (config?.accountNumber && (config.bankCode || config.bankName)) {
+      const bankCode = config.bankCode ?? config.bankName ?? "VCB";
+      const accountHolder = config.accountHolder ?? "SHOP OWNER";
+      const amount = parseFloat(order.totalAmount);
+      paymentInfo = {
+        bankName: config.bankName ?? bankCode,
+        accountNumber: config.accountNumber,
+        accountHolder,
+        reference: existingTxn.paymentReference,
+        qrUrl: buildSepayQrUrl({ bankCode, accountNumber: config.accountNumber, amount, description: existingTxn.paymentReference, accountHolder }),
+      };
+    }
+  }
+
+  if (!paymentInfo) {
+    paymentInfo = await createPaymentRequest(orderId);
+  }
+
   if (!paymentInfo) {
     await sendMessage(chatId, "❌ Không thể tạo thông tin thanh toán. Vui lòng liên hệ admin.");
     return;

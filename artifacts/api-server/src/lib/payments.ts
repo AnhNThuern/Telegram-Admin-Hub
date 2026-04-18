@@ -265,6 +265,21 @@ export async function handleSepayWebhook(payload: Record<string, unknown>): Prom
 
   // Update order to paid and trigger auto delivery
   if (transaction.orderId) {
+    const [currentOrder] = await db.select({ id: ordersTable.id, status: ordersTable.status })
+      .from(ordersTable).where(eq(ordersTable.id, transaction.orderId));
+
+    if (!currentOrder) {
+      logger.warn({ reference, orderId: transaction.orderId }, "SePay webhook: order not found, skipping delivery");
+      return;
+    }
+
+    const terminalStatuses = ["paid", "delivered", "retry_exhausted"];
+    if (terminalStatuses.includes(currentOrder.status)) {
+      logger.info({ reference, orderId: transaction.orderId, orderStatus: currentOrder.status },
+        "SePay webhook: order already in terminal state — recording payment but skipping re-delivery");
+      return;
+    }
+
     await db.update(ordersTable).set({ status: "paid", paidAt: new Date() }).where(eq(ordersTable.id, transaction.orderId));
 
     try {
