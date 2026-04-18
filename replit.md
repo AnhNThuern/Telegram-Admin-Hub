@@ -81,11 +81,20 @@ Vietnamese-language Telegram commerce admin system. Dark-themed admin web UI + R
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
+## Admin Web UI (artifacts/admin-web)
+
+- **Framework**: React + Vite + Tailwind CSS + shadcn/ui + wouter + TanStack Query
+- **Theme**: Dark-first (chartreuse/electric lime accent), fully Vietnamese UI
+- **Preview path**: `/`
+- **Auth guard**: `useGetMe` on mount; redirects to `/login` if 401
+- **Pages**: Login, Dashboard, Categories, Products, Product Stocks, Orders, Order Detail, Transactions, Customers, Customer Detail, Promotions, Bot Settings, Payment Settings, Bot Logs, 404
+- **Hook imports**: from `@workspace/api-client-react` (orval-generated)
+
 ## Project Status
 
 - [x] Task #1: Foundation (DB schema, OpenAPI spec, Express API server, auth, all routes, seeding)
-- [ ] Task #2: Admin Web UI (dark-themed React frontend)
-- [ ] Task #3: Telegram Bot Commerce Flow
-- [ ] Task #4: SePay Payment Integration
+- [x] Task #2: Admin Web UI (dark-themed React frontend — complete)
+- [x] Task #3: Telegram Bot Commerce Flow (lib/bot.ts — complete)
+- [x] Task #4: SePay Payment Integration (lib/payments.ts — complete)
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
