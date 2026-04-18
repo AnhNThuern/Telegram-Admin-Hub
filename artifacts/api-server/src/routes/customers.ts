@@ -2,23 +2,33 @@ import { Router, type IRouter } from "express";
 import { eq, or, ilike, desc, count, sql } from "drizzle-orm";
 import { db, customersTable, ordersTable, transactionsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { validateBody, validateParams, validateQuery } from "../middlewares/validate";
+import {
+  ListCustomersQueryParams,
+  GetCustomerParams,
+  GetCustomerOrdersParams,
+  GetCustomerOrdersQueryParams,
+  GetCustomerTransactionsParams,
+  GetCustomerTransactionsQueryParams,
+  DisableCustomerParams,
+  AddCustomerBalanceParams,
+  AddCustomerBalanceBody,
+} from "@workspace/api-zod";
+import type z from "zod";
 
 const router: IRouter = Router();
 
-router.get("/customers", requireAuth, async (req, res): Promise<void> => {
-  const page = parseInt(String(req.query.page ?? "1"), 10);
-  const limit = parseInt(String(req.query.limit ?? "20"), 10);
-  const search = req.query.search as string | undefined;
+router.get("/customers", requireAuth, validateQuery(ListCustomersQueryParams), async (req, res): Promise<void> => {
+  const { page, limit, search } = req.query as unknown as z.infer<typeof ListCustomersQueryParams>;
   const offset = (page - 1) * limit;
 
-  let where = undefined;
-  if (search) {
-    where = or(
-      ilike(customersTable.chatId, `%${search}%`),
-      ilike(customersTable.username, `%${search}%`),
-      ilike(customersTable.firstName, `%${search}%`),
-    );
-  }
+  const where = search
+    ? or(
+        ilike(customersTable.chatId, `%${search}%`),
+        ilike(customersTable.username, `%${search}%`),
+        ilike(customersTable.firstName, `%${search}%`),
+      )
+    : undefined;
 
   const [totalRow] = await db.select({ count: count() }).from(customersTable).where(where);
   const data = await db.select().from(customersTable).where(where).orderBy(desc(customersTable.createdAt)).limit(limit).offset(offset);
@@ -26,8 +36,8 @@ router.get("/customers", requireAuth, async (req, res): Promise<void> => {
   res.json({ data, total: totalRow?.count ?? 0, page, limit });
 });
 
-router.get("/customers/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+router.get("/customers/:id", requireAuth, validateParams(GetCustomerParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof GetCustomerParams>;
   const [customer] = await db.select().from(customersTable).where(eq(customersTable.id, id));
   if (!customer) {
     res.status(404).json({ error: "Customer not found" });
@@ -36,10 +46,9 @@ router.get("/customers/:id", requireAuth, async (req, res): Promise<void> => {
   res.json(customer);
 });
 
-router.get("/customers/:id/orders", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const page = parseInt(String(req.query.page ?? "1"), 10);
-  const limit = parseInt(String(req.query.limit ?? "20"), 10);
+router.get("/customers/:id/orders", requireAuth, validateParams(GetCustomerOrdersParams), validateQuery(GetCustomerOrdersQueryParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof GetCustomerOrdersParams>;
+  const { page, limit } = req.query as unknown as z.infer<typeof GetCustomerOrdersQueryParams>;
   const offset = (page - 1) * limit;
 
   const [totalRow] = await db.select({ count: count() }).from(ordersTable).where(eq(ordersTable.customerId, id));
@@ -48,10 +57,9 @@ router.get("/customers/:id/orders", requireAuth, async (req, res): Promise<void>
   res.json({ data, total: totalRow?.count ?? 0, page, limit });
 });
 
-router.get("/customers/:id/transactions", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const page = parseInt(String(req.query.page ?? "1"), 10);
-  const limit = parseInt(String(req.query.limit ?? "20"), 10);
+router.get("/customers/:id/transactions", requireAuth, validateParams(GetCustomerTransactionsParams), validateQuery(GetCustomerTransactionsQueryParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof GetCustomerTransactionsParams>;
+  const { page, limit } = req.query as unknown as z.infer<typeof GetCustomerTransactionsQueryParams>;
   const offset = (page - 1) * limit;
 
   const [totalRow] = await db.select({ count: count() }).from(transactionsTable).where(eq(transactionsTable.customerId, id));
@@ -60,8 +68,8 @@ router.get("/customers/:id/transactions", requireAuth, async (req, res): Promise
   res.json({ data, total: totalRow?.count ?? 0, page, limit });
 });
 
-router.post("/customers/:id/disable", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+router.post("/customers/:id/disable", requireAuth, validateParams(DisableCustomerParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof DisableCustomerParams>;
   const [customer] = await db.update(customersTable).set({ isActive: false }).where(eq(customersTable.id, id)).returning();
   if (!customer) {
     res.status(404).json({ error: "Customer not found" });
@@ -70,13 +78,9 @@ router.post("/customers/:id/disable", requireAuth, async (req, res): Promise<voi
   res.json(customer);
 });
 
-router.post("/customers/:id/add-balance", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { amount } = req.body;
-  if (!amount) {
-    res.status(400).json({ error: "Amount is required" });
-    return;
-  }
+router.post("/customers/:id/add-balance", requireAuth, validateParams(AddCustomerBalanceParams), validateBody(AddCustomerBalanceBody), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof AddCustomerBalanceParams>;
+  const { amount } = req.body as z.infer<typeof AddCustomerBalanceBody>;
   const [customer] = await db
     .update(customersTable)
     .set({ balance: sql`balance + ${parseFloat(String(amount))}` })

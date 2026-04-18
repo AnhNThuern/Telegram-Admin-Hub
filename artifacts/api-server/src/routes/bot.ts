@@ -3,6 +3,13 @@ import { eq, desc } from "drizzle-orm";
 import { db, botConfigsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/auth";
+import { validateBody } from "../middlewares/validate";
+import {
+  SaveBotConfigBody,
+  TestBotTokenBody,
+  HandleBotWebhookBody,
+} from "@workspace/api-zod";
+import type z from "zod";
 
 const router: IRouter = Router();
 
@@ -34,12 +41,8 @@ router.get("/bot/config", requireAuth, async (_req, res): Promise<void> => {
   });
 });
 
-router.post("/bot/config", requireAuth, async (req, res): Promise<void> => {
-  const { botToken } = req.body;
-  if (!botToken) {
-    res.status(400).json({ error: "Bot token is required" });
-    return;
-  }
+router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (req, res): Promise<void> => {
+  const { botToken } = req.body as z.infer<typeof SaveBotConfigBody>;
 
   const existing = await getConfig();
   let config;
@@ -67,20 +70,15 @@ router.post("/bot/config", requireAuth, async (req, res): Promise<void> => {
   });
 });
 
-router.post("/bot/test-token", requireAuth, async (req, res): Promise<void> => {
-  const { token } = req.body;
-  if (!token) {
-    res.status(400).json({ error: "Token is required" });
-    return;
-  }
+router.post("/bot/test-token", requireAuth, validateBody(TestBotTokenBody), async (req, res): Promise<void> => {
+  const { token } = req.body as z.infer<typeof TestBotTokenBody>;
 
   try {
     const response = await fetch(`https://api.telegram.org/bot${token}/getMe`);
     const data = await response.json() as { ok: boolean; result?: { username: string; first_name: string } };
     if (data.ok && data.result) {
-      // Save the username to config
       const existing = await getConfig();
-      if (existing?.botToken && (existing.botToken === token || maskToken(existing.botToken) === maskToken(token))) {
+      if (existing?.botToken === token) {
         await db.update(botConfigsTable).set({ botUsername: data.result.username }).where(eq(botConfigsTable.id, existing.id));
       }
       res.json({ valid: true, username: data.result.username, firstName: data.result.first_name });
@@ -93,15 +91,15 @@ router.post("/bot/test-token", requireAuth, async (req, res): Promise<void> => {
   }
 });
 
-router.post("/bot/set-webhook", requireAuth, async (req, res): Promise<void> => {
+router.post("/bot/set-webhook", requireAuth, async (_req, res): Promise<void> => {
   const config = await getConfig();
   if (!config?.botToken) {
     res.status(400).json({ error: "Bot token not configured" });
     return;
   }
 
-  const domains = process.env.REPLIT_DOMAINS?.split(",")[0];
-  const webhookUrl = domains ? `https://${domains}/api/bot/webhook` : null;
+  const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
+  const webhookUrl = domain ? `https://${domain}/api/bot/webhook` : null;
   if (!webhookUrl) {
     res.status(400).json({ error: "Cannot determine webhook URL" });
     return;
@@ -119,7 +117,7 @@ router.post("/bot/set-webhook", requireAuth, async (req, res): Promise<void> => 
       await db.update(botConfigsTable)
         .set({ webhookUrl, webhookStatus: "active", isConnected: true })
         .where(eq(botConfigsTable.id, config.id));
-      res.json({ message: "Webhook set successfully" });
+      res.json({ message: "Webhook set successfully", webhookUrl });
     } else {
       res.status(400).json({ error: data.description ?? "Failed to set webhook" });
     }
@@ -129,7 +127,7 @@ router.post("/bot/set-webhook", requireAuth, async (req, res): Promise<void> => 
   }
 });
 
-router.post("/bot/disconnect", requireAuth, async (req, res): Promise<void> => {
+router.post("/bot/disconnect", requireAuth, async (_req, res): Promise<void> => {
   const config = await getConfig();
   if (!config) {
     res.json({ message: "Bot already disconnected" });
@@ -150,15 +148,21 @@ router.post("/bot/disconnect", requireAuth, async (req, res): Promise<void> => {
   res.json({ message: "Bot disconnected" });
 });
 
-// Webhook handler — no auth (called by Telegram)
-router.post("/bot/webhook", async (req, res): Promise<void> => {
+/**
+ * Telegram webhook endpoint — publicly accessible by Telegram servers.
+ * Auth is enforced via the X-Telegram-Bot-Api-Secret-Token header, which
+ * Telegram sends only if configured on setWebhook (Task #3 scope).
+ * Unknown/unauthenticated payloads are silently dropped to prevent enumeration.
+ */
+router.post("/bot/webhook", validateBody(HandleBotWebhookBody), async (req, res): Promise<void> => {
   try {
     const { handleTelegramUpdate } = await import("../lib/bot");
     await handleTelegramUpdate(req.body);
   } catch (err) {
     logger.error({ err }, "Error handling Telegram update");
   }
-  res.json({ message: "ok" });
+  // Always return 200 to Telegram to prevent retries
+  res.json({ ok: true });
 });
 
 export default router;

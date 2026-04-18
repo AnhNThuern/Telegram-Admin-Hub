@@ -21,10 +21,8 @@ export async function createPaymentRequest(orderId: number): Promise<{
 
   const reference = `SHOP${orderId}${Date.now().toString(36).toUpperCase()}`;
 
-  // Update order with reference
   await db.update(ordersTable).set({ paymentReference: reference }).where(eq(ordersTable.id, orderId));
 
-  // Create pending transaction
   const transactionCode = `TXN-${Date.now()}-${orderId}`;
   await db.insert(transactionsTable).values({
     transactionCode,
@@ -47,52 +45,74 @@ export async function createPaymentRequest(orderId: number): Promise<{
 }
 
 export async function handleSepayWebhook(payload: Record<string, unknown>): Promise<void> {
-  logger.info({ payload }, "Received SePay webhook");
+  logger.info({ payload }, "Processing SePay webhook");
 
   // SePay sends: transferAmount, description (contains reference), transactionDate, etc.
   const description = String(payload.description ?? payload.content ?? "");
-  const amount = String(payload.transferAmount ?? payload.amount ?? "0");
+  const receivedAmount = parseFloat(String(payload.transferAmount ?? payload.amount ?? "0"));
+
+  if (isNaN(receivedAmount) || receivedAmount <= 0) {
+    logger.warn({ payload }, "SePay webhook has invalid or zero amount — ignoring");
+    return;
+  }
 
   // Extract payment reference from description
-  // Reference format: SHOP{orderId}{timestamp}
+  // Reference format: SHOP{orderId}{base36timestamp}
   const refMatch = description.match(/SHOP\d+[A-Z0-9]+/);
   if (!refMatch) {
-    logger.warn({ description }, "No payment reference found in SePay webhook");
+    logger.warn({ description }, "No payment reference found in SePay webhook description");
     return;
   }
 
   const reference = refMatch[0];
 
-  // Find the transaction
-  const [transaction] = await db.select().from(transactionsTable).where(eq(transactionsTable.paymentReference, reference));
+  // Find the pending transaction
+  const [transaction] = await db
+    .select()
+    .from(transactionsTable)
+    .where(eq(transactionsTable.paymentReference, reference));
+
   if (!transaction) {
     logger.warn({ reference }, "No transaction found for payment reference");
     return;
   }
 
-  // Idempotency check
+  // Idempotency: skip already-processed transactions
   if (transaction.status === "confirmed" || transaction.status === "delivered") {
-    logger.info({ reference }, "Webhook already processed, skipping");
+    logger.info({ reference, status: transaction.status }, "Webhook already processed — skipping");
     return;
   }
 
-  // Mark transaction as confirmed
+  // Amount validation: received amount must match expected amount (allow ±1 VND for rounding)
+  const expectedAmount = parseFloat(transaction.amount);
+  const tolerance = 1;
+  if (Math.abs(receivedAmount - expectedAmount) > tolerance) {
+    logger.warn({ reference, receivedAmount, expectedAmount }, "SePay webhook amount mismatch — rejecting");
+    await db.update(transactionsTable).set({
+      status: "failed",
+      rawPayload: JSON.stringify(payload),
+    }).where(eq(transactionsTable.id, transaction.id));
+    return;
+  }
+
+  // Confirm the transaction
   await db.update(transactionsTable).set({
     status: "confirmed",
     confirmedAt: new Date(),
     rawPayload: JSON.stringify(payload),
   }).where(eq(transactionsTable.id, transaction.id));
 
-  // Update order to paid
+  logger.info({ reference, orderId: transaction.orderId, amount: receivedAmount }, "Payment confirmed");
+
+  // Update order to paid and trigger auto delivery
   if (transaction.orderId) {
     await db.update(ordersTable).set({ status: "paid", paidAt: new Date() }).where(eq(ordersTable.id, transaction.orderId));
 
-    // Trigger auto delivery
     try {
       const { deliverOrder } = await import("./bot");
       await deliverOrder(transaction.orderId);
     } catch (err) {
-      logger.error({ err, orderId: transaction.orderId }, "Auto delivery failed after payment");
+      logger.error({ err, orderId: transaction.orderId }, "Auto delivery failed after payment confirmation");
     }
   }
 }

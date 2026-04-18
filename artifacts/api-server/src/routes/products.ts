@@ -2,26 +2,35 @@ import { Router, type IRouter } from "express";
 import { eq, ilike, and, sql, count } from "drizzle-orm";
 import { db, productsTable, productStocksTable, categoriesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { validateBody, validateParams, validateQuery } from "../middlewares/validate";
+import {
+  ListProductsQueryParams,
+  CreateProductBody,
+  GetProductParams,
+  UpdateProductParams,
+  UpdateProductBody,
+  DeleteProductParams,
+  ListProductStocksParams,
+  ListProductStocksQueryParams,
+  AddProductStocksParams,
+  AddProductStocksBody,
+  DeleteStockParams,
+} from "@workspace/api-zod";
+import type z from "zod";
 
 const router: IRouter = Router();
 
-router.get("/products", requireAuth, async (req, res): Promise<void> => {
-  const page = parseInt(String(req.query.page ?? "1"), 10);
-  const limit = parseInt(String(req.query.limit ?? "20"), 10);
-  const search = req.query.search as string | undefined;
-  const categoryId = req.query.categoryId ? parseInt(String(req.query.categoryId), 10) : undefined;
-  const isActive = req.query.isActive !== undefined ? req.query.isActive === "true" : undefined;
+router.get("/products", requireAuth, validateQuery(ListProductsQueryParams), async (req, res): Promise<void> => {
+  const { page, limit, search, categoryId, isActive } = req.query as unknown as z.infer<typeof ListProductsQueryParams>;
   const offset = (page - 1) * limit;
 
   const conditions = [];
   if (search) conditions.push(ilike(productsTable.name, `%${search}%`));
   if (categoryId !== undefined) conditions.push(eq(productsTable.categoryId, categoryId));
   if (isActive !== undefined) conditions.push(eq(productsTable.isActive, isActive));
-
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [totalRow] = await db.select({ count: count() }).from(productsTable).where(where);
-
   const products = await db.select({
     id: productsTable.id,
     name: productsTable.name,
@@ -43,21 +52,26 @@ router.get("/products", requireAuth, async (req, res): Promise<void> => {
   res.json({ data: products, total: totalRow?.count ?? 0, page, limit });
 });
 
-router.post("/products", requireAuth, async (req, res): Promise<void> => {
-  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = req.body;
-  if (!name || !price) {
-    res.status(400).json({ error: "Name and price are required" });
-    return;
-  }
+router.post("/products", requireAuth, validateBody(CreateProductBody), async (req, res): Promise<void> => {
+  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = req.body as z.infer<typeof CreateProductBody>;
   const [product] = await db.insert(productsTable).values({
-    name, description, categoryId, categoryIcon, productIcon, price: String(price), originalPrice: originalPrice ? String(originalPrice) : undefined,
-    productType: productType ?? "digital", minQuantity: minQuantity ?? 1, maxQuantity: maxQuantity ?? 100, isActive: isActive ?? true,
+    name,
+    description,
+    categoryId,
+    categoryIcon,
+    productIcon,
+    price: String(price),
+    originalPrice: originalPrice ? String(originalPrice) : undefined,
+    productType: productType ?? "digital",
+    minQuantity: minQuantity ?? 1,
+    maxQuantity: maxQuantity ?? 100,
+    isActive: isActive ?? true,
   }).returning();
   res.status(201).json({ ...product, stockCount: 0 });
 });
 
-router.get("/products/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+router.get("/products/:id", requireAuth, validateParams(GetProductParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof GetProductParams>;
   const [product] = await db.select({
     id: productsTable.id,
     name: productsTable.name,
@@ -88,9 +102,10 @@ router.get("/products/:id", requireAuth, async (req, res): Promise<void> => {
   res.json({ ...product, category });
 });
 
-router.patch("/products/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = req.body;
+router.patch("/products/:id", requireAuth, validateParams(UpdateProductParams), validateBody(UpdateProductBody), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof UpdateProductParams>;
+  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = req.body as z.infer<typeof UpdateProductBody>;
+
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = name;
   if (description !== undefined) updateData.description = description;
@@ -109,12 +124,12 @@ router.patch("/products/:id", requireAuth, async (req, res): Promise<void> => {
     res.status(404).json({ error: "Product not found" });
     return;
   }
-  const stockCount = await db.select({ count: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, id), eq(productStocksTable.status, "available")));
-  res.json({ ...product, stockCount: stockCount[0]?.count ?? 0 });
+  const [stockRow] = await db.select({ count: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, id), eq(productStocksTable.status, "available")));
+  res.json({ ...product, stockCount: stockRow?.count ?? 0 });
 });
 
-router.delete("/products/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+router.delete("/products/:id", requireAuth, validateParams(DeleteProductParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof DeleteProductParams>;
   const [product] = await db.delete(productsTable).where(eq(productsTable.id, id)).returning();
   if (!product) {
     res.status(404).json({ error: "Product not found" });
@@ -124,9 +139,9 @@ router.delete("/products/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 // Stock routes
-router.get("/products/:id/stocks", requireAuth, async (req, res): Promise<void> => {
-  const productId = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const status = req.query.status as string | undefined;
+router.get("/products/:id/stocks", requireAuth, validateParams(ListProductStocksParams), validateQuery(ListProductStocksQueryParams), async (req, res): Promise<void> => {
+  const { id: productId } = req.params as unknown as z.infer<typeof ListProductStocksParams>;
+  const { status } = req.query as unknown as z.infer<typeof ListProductStocksQueryParams>;
 
   const conditions = [eq(productStocksTable.productId, productId)];
   if (status) conditions.push(eq(productStocksTable.status, status));
@@ -137,24 +152,20 @@ router.get("/products/:id/stocks", requireAuth, async (req, res): Promise<void> 
   res.json({ data, availableCount: availableCount?.count ?? 0, totalCount: data.length });
 });
 
-router.post("/products/:id/stocks", requireAuth, async (req, res): Promise<void> => {
-  const productId = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { lines } = req.body as { lines: string[] };
-  if (!lines || !Array.isArray(lines) || lines.length === 0) {
-    res.status(400).json({ error: "Lines array is required" });
-    return;
-  }
-  const validLines = lines.map(l => l.trim()).filter(l => l.length > 0);
+router.post("/products/:id/stocks", requireAuth, validateParams(AddProductStocksParams), validateBody(AddProductStocksBody), async (req, res): Promise<void> => {
+  const { id: productId } = req.params as unknown as z.infer<typeof AddProductStocksParams>;
+  const { lines } = req.body as z.infer<typeof AddProductStocksBody>;
+  const validLines = lines.map((l: string) => l.trim()).filter((l: string) => l.length > 0);
   if (validLines.length === 0) {
     res.status(400).json({ error: "No valid stock lines provided" });
     return;
   }
-  await db.insert(productStocksTable).values(validLines.map(content => ({ productId, content, status: "available" })));
+  await db.insert(productStocksTable).values(validLines.map((content: string) => ({ productId, content, status: "available" })));
   res.status(201).json({ added: validLines.length, message: `Added ${validLines.length} stock lines` });
 });
 
-router.delete("/stocks/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+router.delete("/stocks/:id", requireAuth, validateParams(DeleteStockParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof DeleteStockParams>;
   const [stock] = await db.delete(productStocksTable).where(eq(productStocksTable.id, id)).returning();
   if (!stock) {
     res.status(404).json({ error: "Stock not found" });

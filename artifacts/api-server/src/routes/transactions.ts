@@ -2,15 +2,17 @@ import { Router, type IRouter } from "express";
 import { eq, and, or, ilike, desc, count } from "drizzle-orm";
 import { db, transactionsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { validateParams, validateQuery } from "../middlewares/validate";
+import {
+  ListTransactionsQueryParams,
+  GetTransactionParams,
+} from "@workspace/api-zod";
+import type z from "zod";
 
 const router: IRouter = Router();
 
-router.get("/transactions", requireAuth, async (req, res): Promise<void> => {
-  const page = parseInt(String(req.query.page ?? "1"), 10);
-  const limit = parseInt(String(req.query.limit ?? "20"), 10);
-  const type = req.query.type as string | undefined;
-  const status = req.query.status as string | undefined;
-  const search = req.query.search as string | undefined;
+router.get("/transactions", requireAuth, validateQuery(ListTransactionsQueryParams), async (req, res): Promise<void> => {
+  const { page, limit, type, status, search } = req.query as unknown as z.infer<typeof ListTransactionsQueryParams>;
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -32,8 +34,8 @@ router.get("/transactions", requireAuth, async (req, res): Promise<void> => {
   res.json({ data, total: totalRow?.count ?? 0, page, limit });
 });
 
-router.get("/transactions/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+router.get("/transactions/:id", requireAuth, validateParams(GetTransactionParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof GetTransactionParams>;
   const [transaction] = await db.select().from(transactionsTable).where(eq(transactionsTable.id, id));
   if (!transaction) {
     res.status(404).json({ error: "Transaction not found" });

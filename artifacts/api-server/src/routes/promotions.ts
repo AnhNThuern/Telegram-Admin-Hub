@@ -2,6 +2,15 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, promotionsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { validateBody, validateParams } from "../middlewares/validate";
+import {
+  CreatePromotionBody,
+  GetPromotionParams,
+  UpdatePromotionParams,
+  UpdatePromotionBody,
+  DeletePromotionParams,
+} from "@workspace/api-zod";
+import type z from "zod";
 
 const router: IRouter = Router();
 
@@ -10,18 +19,18 @@ router.get("/promotions", requireAuth, async (_req, res): Promise<void> => {
   res.json({ data });
 });
 
-router.post("/promotions", requireAuth, async (req, res): Promise<void> => {
-  const { name, description, type, appliesTo, categoryId, productId, customerTarget, customerId, tiers, startDate, endDate, priority, isActive } = req.body;
-  if (!name || !type) {
-    res.status(400).json({ error: "Name and type are required" });
-    return;
-  }
+router.post("/promotions", requireAuth, validateBody(CreatePromotionBody), async (req, res): Promise<void> => {
+  const { name, description, type, appliesTo, categoryId, productId, customerTarget, customerId, tiers, startDate, endDate, priority, isActive } = req.body as z.infer<typeof CreatePromotionBody>;
   const [promotion] = await db.insert(promotionsTable).values({
-    name, description, type,
+    name,
+    description,
+    type,
     appliesTo: appliesTo ?? "all",
-    categoryId, productId,
+    categoryId,
+    productId,
     customerTarget: customerTarget ?? "all",
-    customerId, tiers,
+    customerId,
+    tiers,
     startDate: startDate ? new Date(startDate) : undefined,
     endDate: endDate ? new Date(endDate) : undefined,
     priority: priority ?? 0,
@@ -30,8 +39,8 @@ router.post("/promotions", requireAuth, async (req, res): Promise<void> => {
   res.status(201).json(promotion);
 });
 
-router.get("/promotions/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+router.get("/promotions/:id", requireAuth, validateParams(GetPromotionParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof GetPromotionParams>;
   const [promotion] = await db.select().from(promotionsTable).where(eq(promotionsTable.id, id));
   if (!promotion) {
     res.status(404).json({ error: "Promotion not found" });
@@ -40,9 +49,10 @@ router.get("/promotions/:id", requireAuth, async (req, res): Promise<void> => {
   res.json(promotion);
 });
 
-router.patch("/promotions/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
-  const { name, description, type, appliesTo, categoryId, productId, customerTarget, customerId, tiers, startDate, endDate, priority, isActive } = req.body;
+router.patch("/promotions/:id", requireAuth, validateParams(UpdatePromotionParams), validateBody(UpdatePromotionBody), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof UpdatePromotionParams>;
+  const { name, description, type, appliesTo, categoryId, productId, customerTarget, customerId, tiers, startDate, endDate, priority, isActive } = req.body as z.infer<typeof UpdatePromotionBody>;
+
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = name;
   if (description !== undefined) updateData.description = description;
@@ -66,8 +76,8 @@ router.patch("/promotions/:id", requireAuth, async (req, res): Promise<void> => 
   res.json(promotion);
 });
 
-router.delete("/promotions/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+router.delete("/promotions/:id", requireAuth, validateParams(DeletePromotionParams), async (req, res): Promise<void> => {
+  const { id } = req.params as unknown as z.infer<typeof DeletePromotionParams>;
   const [promotion] = await db.delete(promotionsTable).where(eq(promotionsTable.id, id)).returning();
   if (!promotion) {
     res.status(404).json({ error: "Promotion not found" });
