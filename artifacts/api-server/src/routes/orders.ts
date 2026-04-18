@@ -71,19 +71,9 @@ router.get("/orders/:id", requireAuth, validateParams(GetOrderParams), async (re
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
 
-  // Retry count = number of actual RETRY attempts (excludes the initial delivery_failed;
-  // only counts results from subsequent retry flows)
-  const RETRY_RESULT_ACTIONS = [
-    "retry_delivery_sent",
-    "restock_retry_delivered",
-    "restock_retry_failed",
-    "scheduled_retry_delivered",
-    "scheduled_retry_failed",
-    "scheduled_retry_exception",
-  ];
-  const retryCount = directRetryLogs.filter(log => RETRY_RESULT_ACTIONS.includes(log.action)).length;
-
-  res.json({ ...order, items, customer: customer ?? null, transaction: transaction ?? null, retryCount, retryLogs });
+  // retryCount is now persisted on the order itself (incremented inside deliverOrder
+  // for each isRetry attempt). bot_logs are still returned for the detailed history view.
+  res.json({ ...order, items, customer: customer ?? null, transaction: transaction ?? null, retryCount: order.retryCount, retryLogs });
 });
 
 export default router;

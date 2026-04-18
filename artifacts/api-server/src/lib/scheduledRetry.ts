@@ -143,13 +143,14 @@ export async function runStuckOrderRetrySweep(): Promise<RetrySweepResult> {
 
         let success: boolean;
         try {
-          success = await deliverOrder(orderId);
+          success = await deliverOrder(orderId, { isRetry: true });
         } catch (deliverErr) {
           logger.error({ err: deliverErr, orderId, orderCode }, "deliverOrder threw unexpectedly during sweep; restoring stuck status");
 
+          // deliverOrder already incremented retryCount before throwing; just restore the status.
           await db
             .update(ordersTable)
-            .set({ status: previousStatus, retryCount: retryCount + 1 })
+            .set({ status: previousStatus })
             .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "paid")));
 
           await db.insert(botLogsTable).values({
@@ -167,7 +168,7 @@ export async function runStuckOrderRetrySweep(): Promise<RetrySweepResult> {
         await db.insert(botLogsTable).values({
           action: success ? "scheduled_retry_delivered" : "scheduled_retry_failed",
           content: `Scheduled retry for order ${orderCode} (id=${orderId}): ${success ? "delivered" : "failed"} (attempt ${retryCount + 1})`,
-          metadata: { orderId, orderCode, previousStatus, retryCount: success ? retryCount : retryCount + 1 },
+          metadata: { orderId, orderCode, previousStatus, retryCount: retryCount + 1 },
           level: success ? "info" : "warn",
         });
 
@@ -175,12 +176,8 @@ export async function runStuckOrderRetrySweep(): Promise<RetrySweepResult> {
           delivered++;
           deliveredCodes.push(orderCode);
         } else {
-          // deliverOrder resets status to needs_manual_action internally; increment retryCount
-          await db
-            .update(ordersTable)
-            .set({ retryCount: retryCount + 1 })
-            .where(eq(ordersTable.id, orderId));
-
+          // deliverOrder resets status to needs_manual_action internally and already
+          // incremented retryCount on entry; nothing else to do here.
           failed++;
           failedCodes.push(orderCode);
         }

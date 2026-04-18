@@ -557,11 +557,19 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
   await sendMessage(chatId, msg);
 }
 
-export async function deliverOrder(orderId: number): Promise<boolean> {
+export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } = {}): Promise<boolean> {
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId));
   if (!order || (order.status !== "paid" && order.status !== "needs_manual_action")) return false;
 
-  const isRetry = order.status === "needs_manual_action";
+  const isRetry = opts.isRetry === true || order.status === "needs_manual_action";
+
+  // Persist retry attempt count on the order itself so /orders/:id and admin lists
+  // can show it without scanning bot_logs on every request.
+  if (isRetry) {
+    await db.update(ordersTable)
+      .set({ retryCount: sqlOp`${ordersTable.retryCount} + 1` })
+      .where(eq(ordersTable.id, orderId));
+  }
 
   const [customer] = await db.select().from(customersTable).where(eq(customersTable.id, order.customerId));
   if (!customer) return false;
