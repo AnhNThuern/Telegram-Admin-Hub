@@ -1,0 +1,1172 @@
+# PRD — Hệ thống Admin quản trị bán hàng qua Telegram Bot + SePay
+
+## 1. Document Control
+
+- **Project Name:** Telegram Shop Admin
+- **Document Type:** Product Requirements Document (PRD)
+- **Version:** 1.0
+- **Status:** Draft for implementation
+- **Primary Audience:** Gemini Pro 3 / AI coding agent / engineering team
+- **Language:** Vietnamese
+- **Source Constraint:** Chỉ được dựa trên thông tin và UI reference đã cung cấp. Không tự ý thêm feature ngoài scope.
+
+---
+
+## 2. Product Summary
+
+Xây dựng một hệ thống quản trị bán hàng tự động qua **Telegram Bot**, bao gồm:
+
+1. **Website Admin** để quản lý vận hành
+2. **Telegram Bot** để khách hàng tương tác và mua hàng
+3. **SePay** là phương thức thanh toán chính
+4. **Quản lý sản phẩm số** với tồn kho dạng từng dòng stock
+5. **Tự động giao hàng** sau khi thanh toán thành công
+
+Sản phẩm cần tái tạo theo mô hình quản trị đã được tham chiếu từ UI mẫu:
+- Dashboard
+- Sản phẩm
+- Đơn hàng
+- Giao dịch
+- Khách hàng
+- Khuyến mãi
+- Cấu hình Bot
+- Nhật ký Bot
+- Thanh toán / Cài đặt
+
+---
+
+## 3. Product Goal
+
+### 3.1 Business Goal
+- Cho phép chủ shop bán hàng tự động qua Telegram
+- Giảm thao tác thủ công trong quản lý đơn và thanh toán
+- Tập trung toàn bộ vận hành trên một trang admin
+
+### 3.2 User Goal
+- Admin dễ dàng thêm sản phẩm, quản lý stock, theo dõi đơn hàng
+- Khách hàng có thể xem sản phẩm, đặt hàng, thanh toán và nhận hàng qua Telegram bot
+- Dòng thanh toán phải rõ ràng, đơn giản, tự động hóa với SePay
+
+---
+
+## 4. Scope
+
+## 4.1 In Scope (MVP)
+Hệ thống phải có các module sau:
+
+1. Authentication cho admin
+2. Dashboard tổng quan
+3. Quản lý sản phẩm
+4. Quản lý danh mục
+5. Quản lý stock sản phẩm số
+6. Quản lý đơn hàng
+7. Quản lý giao dịch
+8. Quản lý khách hàng Telegram
+9. Cấu hình Telegram Bot
+10. Nhật ký Bot
+11. Tích hợp SePay
+12. Telegram Bot flow cơ bản
+13. Tự động giao hàng cho sản phẩm số
+14. Khuyến mãi cơ bản ở mức cấu hình dữ liệu
+
+## 4.2 Out of Scope
+Không triển khai trong bản đầu:
+- Multi-tenant / multi-shop
+- Affiliate / hoa hồng phức tạp
+- Hệ thống gói dịch vụ
+- Mobile app
+- Phân quyền nhiều vai trò phức tạp
+- Rule engine khuyến mãi nâng cao
+- CMS / landing page
+- Các tính năng ngoài UI và mô tả đã cung cấp
+
+---
+
+## 5. Key Assumptions
+
+1. Hệ thống có **1 admin chính**
+2. Telegram là kênh bán hàng chính
+3. SePay là phương thức thanh toán chính
+4. Sản phẩm trọng tâm là **sản phẩm số** có stock dạng line-by-line
+5. Giao hàng thực hiện trực tiếp qua Telegram
+6. Web admin là giao diện vận hành, không phải website storefront cho khách
+
+---
+
+## 6. User Roles
+
+## 6.1 Admin
+Admin có thể:
+- Đăng nhập admin panel
+- Xem dashboard
+- Quản lý sản phẩm, danh mục, stock
+- Xem đơn hàng, giao dịch, khách hàng
+- Cấu hình bot Telegram
+- Cấu hình thanh toán SePay
+- Xem log bot
+- Tạo khuyến mãi cơ bản
+
+## 6.2 Customer
+Customer sử dụng Telegram bot để:
+- Bắt đầu bot qua `/start`
+- Xem sản phẩm
+- Chọn số lượng
+- Tạo đơn hàng
+- Nhận hướng dẫn thanh toán
+- Thanh toán
+- Nhận hàng
+
+---
+
+## 7. Product Flow Overview
+
+### 7.1 Admin Flow
+1. Admin đăng nhập
+2. Admin cấu hình Telegram bot token
+3. Admin cấu hình SePay
+4. Admin tạo danh mục
+5. Admin tạo sản phẩm
+6. Admin nhập stock
+7. Admin theo dõi đơn hàng, giao dịch, khách hàng, log
+
+### 7.2 Customer Flow
+1. Customer vào bot và gửi `/start`
+2. Bot tạo hoặc cập nhật hồ sơ customer
+3. Bot hiển thị menu / sản phẩm
+4. Customer chọn sản phẩm và số lượng
+5. Hệ thống tạo đơn hàng `pending`
+6. Hệ thống tạo payment request qua SePay
+7. Customer thanh toán
+8. Hệ thống nhận webhook
+9. Đơn chuyển `paid`
+10. Hệ thống cấp hàng tự động
+11. Đơn chuyển `delivered`
+12. Bot gửi hàng cho customer
+
+---
+
+## 8. Functional Requirements
+
+# FR-01 Authentication
+
+## Objective
+Bảo vệ khu vực admin.
+
+## Requirements
+- Có trang đăng nhập admin
+- Có đăng xuất
+- Chỉ người đã đăng nhập mới truy cập được admin routes
+- Session/token auth phải được bảo vệ
+
+## Acceptance Criteria
+- Admin đăng nhập thành công bằng tài khoản hợp lệ
+- Admin không đăng nhập thì không truy cập được dashboard
+- Có thể logout thành công
+
+---
+
+# FR-02 Dashboard
+
+## Objective
+Cung cấp màn hình tổng quan vận hành.
+
+## Required Widgets
+- Tổng số sản phẩm
+- Tổng số đơn hàng
+- Tổng số khách hàng
+- Tổng doanh thu
+- Biểu đồ thống kê cơ bản
+- Khu vực đơn hàng gần đây
+- Khu vực khách hàng mới
+- Quick actions:
+  - Thêm sản phẩm
+  - Cấu hình bot
+  - Thiết lập payment
+
+## Acceptance Criteria
+- Dashboard lấy dữ liệu thật từ database
+- Các số liệu hiển thị đúng
+- Có thể load ổn định ngay cả khi dữ liệu rỗng
+
+---
+
+# FR-03 Category Management
+
+## Objective
+Tạo nền tảng phân loại sản phẩm.
+
+## Required Fields
+- Tên danh mục
+- Icon danh mục
+- Trạng thái
+
+## Actions
+- Tạo danh mục
+- Sửa danh mục
+- Xóa danh mục
+- Danh sách danh mục
+
+## Acceptance Criteria
+- Danh mục có thể được sử dụng khi tạo sản phẩm
+- Không cho tạo danh mục bị trùng logic không hợp lệ nếu hệ thống quy định unique
+
+---
+
+# FR-04 Product Management
+
+## Objective
+Cho phép admin quản lý sản phẩm.
+
+## Required Product Fields
+- Tên sản phẩm
+- Mô tả
+- Danh mục
+- Icon danh mục
+- Icon sản phẩm
+- Giá bán
+- Giá gốc
+- Loại sản phẩm
+- Mua tối thiểu
+- Mua tối đa
+- Trạng thái
+- Stock nhập nhiều dòng
+
+## Supported Actions
+- Tạo sản phẩm
+- Sửa sản phẩm
+- Xóa sản phẩm
+- Tìm kiếm theo tên
+- Lọc theo danh mục
+- Lọc theo trạng thái
+- Xem số lượng stock còn lại
+
+## Product Type
+Ít nhất hỗ trợ:
+- `digital`
+
+Có thể chuẩn bị field cho mở rộng:
+- `physical`
+
+## Acceptance Criteria
+- Admin có thể CRUD sản phẩm thành công
+- Mỗi sản phẩm có thể gắn danh mục
+- Có thể nhập stock theo nhiều dòng
+- Có thể xem sản phẩm từ admin list
+
+---
+
+# FR-05 Product Stock Management
+
+## Objective
+Quản lý tồn kho cho sản phẩm số theo từng dòng dữ liệu.
+
+## Stock Model
+Mỗi stock là một record riêng:
+- `content`
+- `status`
+- `product_id`
+
+## Supported Stock Status
+- `available`
+- `reserved`
+- `delivered`
+
+## Rules
+- Mỗi dòng stock chỉ được giao 1 lần
+- Không được giao trùng stock
+- Nếu không còn stock hợp lệ thì không được giao tự động
+
+## Acceptance Criteria
+- Có thể nhập nhiều dòng stock cho một sản phẩm
+- Hệ thống trừ stock đúng khi giao hàng
+- Không xảy ra double-delivery
+
+---
+
+# FR-06 Customer Management
+
+## Objective
+Quản lý user Telegram đã tương tác với bot.
+
+## Required Customer Fields
+- Chat ID
+- First name
+- Last name
+- Username
+- Số dư
+- Tổng chi tiêu
+- Tổng đơn hàng
+- Hoạt động cuối
+- Trạng thái
+
+## Required Features
+- Danh sách khách hàng
+- Search theo chat ID / username
+- Sort theo mới nhất
+- Xem chi tiết khách hàng
+- Xem lịch sử đơn
+- Xem lịch sử giao dịch
+
+## Admin Actions
+- Đồng bộ
+- Vô hiệu hóa
+- Cộng tiền
+- Đặt giảm giá (placeholder/basic)
+
+## Acceptance Criteria
+- Khi user `/start`, hệ thống tạo customer nếu chưa tồn tại
+- Nếu đã tồn tại thì cập nhật thông tin
+- Admin xem được customer profile
+
+---
+
+# FR-07 Order Management
+
+## Objective
+Quản lý các đơn hàng được tạo qua bot.
+
+## Required Order Fields
+- Mã đơn
+- Customer
+- Sản phẩm
+- Số lượng
+- Tổng tiền
+- Trạng thái
+- Thời gian tạo
+- Thời gian thanh toán
+- Thời gian giao hàng
+
+## Supported Order Status
+- `pending`
+- `paid`
+- `delivered`
+- `failed`
+- `cancelled`
+- `needs_manual_action` (nếu cần khi paid nhưng không giao được)
+
+## Required Features
+- Tạo đơn từ bot
+- Danh sách đơn hàng
+- Lọc theo trạng thái
+- Xem chi tiết đơn
+- Liên kết đơn với giao dịch và customer
+
+## Acceptance Criteria
+- Khi user đặt hàng, tạo order thành công
+- Khi payment thành công, order đổi trạng thái `paid`
+- Khi giao hàng thành công, order đổi trạng thái `delivered`
+
+---
+
+# FR-08 Transaction Management
+
+## Objective
+Quản lý tất cả các giao dịch phát sinh.
+
+## Required Transaction Fields
+- Mã giao dịch
+- Mã tham chiếu thanh toán
+- Loại giao dịch
+- Order liên quan
+- Customer
+- Số tiền
+- Trạng thái
+- Provider
+- Raw payload
+- Thời gian tạo
+- Thời gian xác nhận
+
+## Supported Transaction Types
+- `payment`
+- `topup`
+- `manual`
+
+## Required Features
+- Danh sách giao dịch
+- Search
+- Filter theo loại
+- Refresh
+- Xem trạng thái giao dịch
+
+## Acceptance Criteria
+- Khi tạo order, có transaction pending tương ứng nếu flow yêu cầu
+- Khi webhook SePay đến, transaction được update đúng
+- Có thể truy vết transaction về order
+
+---
+
+# FR-09 Telegram Bot Configuration
+
+## Objective
+Cho phép admin kết nối bot Telegram với hệ thống.
+
+## Required Config Fields
+- Bot token
+- Bot username
+- Webhook status
+- Connection status
+
+## Required Features
+- Nhập token
+- Test token
+- Lưu token
+- Hiển thị bot username
+- Hiển thị trạng thái
+- Khởi động bot
+- Ngắt kết nối bot
+
+## Future Placeholder Sections
+- Liên kết admin
+- Quản lý ngôn ngữ bot
+- Menu buttons
+- Tính năng
+- Hoa hồng CTV
+
+## Acceptance Criteria
+- Token hợp lệ được test thành công
+- Có thể lưu cấu hình
+- Hệ thống nhận update từ Telegram qua webhook
+
+---
+
+# FR-10 Bot Logs
+
+## Objective
+Phục vụ debug và theo dõi hành vi bot.
+
+## Required Log Fields
+- Thời gian
+- Hành động
+- Customer
+- Nội dung
+- Metadata
+
+## Required Features
+- Search
+- Filter theo hành động
+- Refresh
+- Auto refresh on/off
+
+## Minimum Logged Events
+- `/start`
+- chọn ngôn ngữ
+- chọn sản phẩm
+- tạo đơn
+- thanh toán
+- giao hàng
+- lỗi bot
+
+## Acceptance Criteria
+- Có thể xem log trong admin
+- Có thể tìm kiếm và lọc log
+
+---
+
+# FR-11 SePay Payment Integration
+
+## Objective
+Sử dụng SePay làm phương thức thanh toán chính.
+
+## Required Features
+- Lưu cấu hình SePay
+- Tạo payment request cho order
+- Lưu payment reference
+- Nhận webhook callback
+- Xác thực dữ liệu callback ở mức hệ thống cho phép
+- Đối soát giao dịch
+- Cập nhật order
+- Ghi transaction
+
+## Business Rules
+- Webhook phải xử lý idempotent
+- Không được ghi nhận trùng giao dịch
+- Phải map đúng payment về đúng order/reference
+- Nếu webhook lặp lại thì không xử lý giao hàng lần hai
+
+## Acceptance Criteria
+- Tạo được payment request cho order
+- Thanh toán thành công làm order cập nhật tự động
+- Giao dịch được lưu lại và liên kết đúng
+
+---
+
+# FR-12 Telegram Bot Commerce Flow
+
+## Objective
+Cho phép user mua hàng qua Telegram bot.
+
+## Minimum Bot Flow
+1. `/start`
+2. Chọn ngôn ngữ (nếu có)
+3. Hiển thị menu chính
+4. Xem danh sách sản phẩm
+5. Xem chi tiết sản phẩm
+6. Chọn số lượng
+7. Tạo đơn hàng
+8. Nhận hướng dẫn thanh toán
+9. Sau thanh toán nhận hàng
+
+## Required Bot Capabilities
+- Gửi message
+- Inline keyboard / button callback
+- Ghi log hành động
+- Lưu customer context tối thiểu
+
+## Acceptance Criteria
+- User thật có thể đi hết flow mua hàng
+- Order được tạo từ bot
+- Sau payment user nhận được hàng
+
+---
+
+# FR-13 Auto Delivery
+
+## Objective
+Tự động giao hàng cho sản phẩm số sau khi thanh toán thành công.
+
+## Delivery Logic
+- Trigger khi order chuyển `paid`
+- Lấy stock `available`
+- Gắn stock cho order
+- Đánh dấu stock là `delivered`
+- Gửi nội dung hàng qua Telegram
+- Cập nhật order là `delivered`
+
+## Failure Logic
+Nếu không còn stock:
+- Không giao hàng
+- Ghi log lỗi
+- Cập nhật trạng thái phù hợp như `needs_manual_action`
+- Không retry vô hạn không kiểm soát
+
+## Acceptance Criteria
+- Paid order có stock sẽ được giao tự động
+- Không giao trùng stock
+- Hết stock phải được ghi log rõ ràng
+
+---
+
+# FR-14 Promotion Management (Basic)
+
+## Objective
+Cho phép tạo cấu hình khuyến mãi cơ bản theo UI tham chiếu.
+
+## Supported Promotion Types
+- Mua X tặng Y
+- Giảm % theo số lượng
+- Khuyến mãi nạp
+
+## Required Fields
+- Tên chương trình
+- Mô tả ngắn
+- Áp dụng cho:
+  - Tất cả sản phẩm
+  - Theo danh mục
+  - Sản phẩm cụ thể
+- Khách hàng áp dụng:
+  - Tất cả khách hàng
+  - Khách hàng cụ thể
+- Loại khuyến mãi
+- Mốc cấu hình
+- Ngày bắt đầu
+- Ngày kết thúc
+- Độ ưu tiên
+
+## MVP Constraint
+- Chỉ cần hỗ trợ lưu cấu hình dữ liệu
+- Có thể chỉ thực thi 1 rule đơn giản nhất, ưu tiên `mua X tặng Y`
+
+## Acceptance Criteria
+- Admin tạo được promotion record
+- Có thể hiển thị lại trong admin
+- Không cần full engine phức tạp ở MVP
+
+---
+
+## 9. Non-Functional Requirements
+
+# NFR-01 Security
+- Bảo vệ route admin
+- Không lộ bot token, secret thanh toán
+- Thông tin nhạy cảm phải che bớt khi hiển thị
+- Dùng env cho secrets
+
+# NFR-02 Reliability
+- Webhook xử lý idempotent
+- Delivery không gửi trùng
+- Dữ liệu transaction/order nhất quán
+
+# NFR-03 Performance
+- List page có phân trang
+- Dashboard truy vấn ổn định
+- Có thể hoạt động với dữ liệu rỗng
+
+# NFR-04 Maintainability
+- Thiết kế theo module rõ ràng:
+  - auth
+  - dashboard
+  - products
+  - orders
+  - customers
+  - transactions
+  - bot
+  - payments
+  - logs
+  - promotions
+
+# NFR-05 Observability
+- Có log hành vi bot
+- Có log lỗi xử lý payment
+- Có log lỗi delivery
+
+---
+
+## 10. Data Model (Core Entities)
+
+Hệ thống cần tối thiểu các entity sau:
+
+- `AdminUser`
+- `Category`
+- `Product`
+- `ProductStock`
+- `Customer`
+- `Order`
+- `OrderItem`
+- `Transaction`
+- `Promotion`
+- `BotConfig`
+- `PaymentConfig`
+- `BotLog`
+
+### Suggested Key Relations
+- `Category` 1 - N `Product`
+- `Product` 1 - N `ProductStock`
+- `Customer` 1 - N `Order`
+- `Order` 1 - N `OrderItem`
+- `Order` 1 - N `Transaction`
+- `Customer` 1 - N `Transaction`
+- `Customer` 1 - N `BotLog`
+
+---
+
+## 11. Success Criteria
+
+Sản phẩm được coi là đạt yêu cầu khi thỏa toàn bộ:
+
+1. Admin đăng nhập được
+2. Admin tạo được danh mục
+3. Admin tạo được sản phẩm
+4. Admin nhập được stock
+5. Admin cấu hình được bot Telegram
+6. User Telegram `/start` thành công
+7. User xem được sản phẩm trong bot
+8. User tạo được đơn
+9. SePay cập nhật payment thành công
+10. Bot giao hàng tự động
+11. Admin xem được dashboard, đơn, giao dịch, khách hàng, log
+
+---
+
+## 12. Delivery Strategy for AI Agent
+
+Phần dưới đây là **execution plan bắt buộc** cho Gemini Pro 3 hoặc AI coding agent.  
+Agent phải làm **tuần tự theo phase**, không nhảy cóc, không thêm tính năng ngoài phạm vi.
+
+---
+
+# Phase 0 — Working Rules
+
+## Mandatory Rules
+1. Chỉ triển khai theo PRD này
+2. Ưu tiên MVP end-to-end trước
+3. Không tự ý thêm feature ngoài scope
+4. Mỗi phase phải có output cụ thể
+5. Sau mỗi phase phải tự kiểm thử
+6. Secrets phải đặt trong environment variables
+7. UI cần bám cấu trúc admin dark theme theo mẫu đã cung cấp
+8. Luồng quan trọng nhất là:
+   - thêm sản phẩm
+   - bot tạo đơn
+   - SePay thanh toán
+   - giao hàng tự động
+   - admin xem log
+
+---
+
+# Phase 1 — Project Setup
+
+## Step 1. Create project structure
+Tạo kiến trúc gồm:
+- `admin-web`
+- `backend-api`
+- `bot-module` hoặc bot như một module trong backend
+
+## Expected Output
+- Repo có cấu trúc rõ ràng
+- File `.env.example`
+- File `README.md` mô tả cách chạy local
+
+## Step 2. Initialize database schema
+Tạo migration/schema cho:
+- admins
+- categories
+- products
+- product_stocks
+- customers
+- orders
+- order_items
+- transactions
+- promotions
+- bot_configs
+- payment_configs
+- bot_logs
+
+## Expected Output
+- Migration chạy được
+- Seed admin mặc định
+- Tài liệu mô tả schema cơ bản
+
+## Step 3. Setup admin auth
+Implement:
+- Login API
+- Auth middleware
+- Login UI
+- Logout
+
+## Expected Output
+- Admin login/logout hoạt động
+- Protected routes hoạt động
+
+---
+
+# Phase 2 — Admin Layout & Dashboard
+
+## Step 4. Build admin layout
+Tạo layout dark theme với:
+- Sidebar
+- Topbar
+- Main content
+- Menu:
+  - Dashboard
+  - Sản phẩm
+  - Đơn hàng
+  - Giao dịch
+  - Khách hàng
+  - Khuyến mãi
+  - Cấu hình Bot
+  - Nhật ký Bot
+  - Thanh toán
+  - Cài đặt
+
+## Expected Output
+- Layout admin hoạt động
+- Route navigation ổn định
+
+## Step 5. Build dashboard
+Tạo:
+- API thống kê
+- Thẻ tổng số liệu
+- Đơn gần đây
+- Khách hàng mới
+- Quick actions
+
+## Expected Output
+- Dashboard hiển thị dữ liệu thật từ DB
+
+---
+
+# Phase 3 — Category & Product Management
+
+## Step 6. Build category management
+Implement:
+- Category model
+- CRUD category
+- Icon support
+
+## Expected Output
+- Category usable in product form
+
+## Step 7. Build product list page
+Implement:
+- Product list API
+- Search
+- Filter category
+- Filter status
+- Pagination
+
+## Expected Output
+- Trang sản phẩm hoạt động giống cấu trúc mẫu
+
+## Step 8. Build create/edit product form
+Required fields:
+- Tên
+- Mô tả
+- Danh mục
+- Icon danh mục
+- Icon sản phẩm
+- Giá bán
+- Giá gốc
+- Loại sản phẩm
+- Mua tối thiểu
+- Mua tối đa
+- Stock nhập nhiều dòng
+
+## Expected Output
+- Tạo / sửa sản phẩm thành công
+- Dữ liệu lưu đúng DB
+
+## Step 9. Build safe stock logic
+Implement:
+- Stock table riêng
+- Status: available / reserved / delivered
+- Reserve or consume logic an toàn
+- Tránh race condition
+
+## Expected Output
+- Không giao trùng stock
+
+---
+
+# Phase 4 — Telegram Bot Integration
+
+## Step 10. Build bot config module
+Implement:
+- UI nhập token
+- Save config API
+- Test token API
+- Get bot username
+- Connection status
+
+## Expected Output
+- Admin cấu hình bot được
+
+## Step 11. Build Telegram webhook handler
+Implement:
+- Endpoint nhận Telegram update
+- Parse `/start`
+- Parse callback query
+- Ghi log bot
+
+## Expected Output
+- Bot phản hồi `/start`
+- Log được lưu
+
+## Step 12. Build bot main menu
+Implement:
+- Nút xem sản phẩm
+- Nút quay lại
+- Nút chọn số lượng
+- Nút thanh toán
+
+## Expected Output
+- User duyệt sản phẩm được qua bot
+
+## Step 13. Sync customers from Telegram
+Implement:
+- Tạo customer khi `/start`
+- Update customer info nếu đã tồn tại
+- Ghi last active
+
+## Expected Output
+- Customer xuất hiện trong admin
+
+---
+
+# Phase 5 — Order Flow
+
+## Step 14. Build order creation from bot
+Implement:
+- Chọn sản phẩm
+- Chọn số lượng
+- Validate min/max
+- Validate stock logic
+- Tính tổng tiền
+- Tạo order + order item
+- Status = pending
+
+## Expected Output
+- Order xuất hiện trong admin
+
+## Step 15. Build admin order management
+Implement:
+- Danh sách đơn
+- Filter theo trạng thái
+- Detail view
+
+## Expected Output
+- Admin theo dõi được toàn bộ order
+
+---
+
+# Phase 6 — SePay Integration
+
+## Step 16. Build SePay config module
+Implement:
+- UI lưu config
+- API lưu config
+- Mask sensitive data khi hiển thị
+
+## Expected Output
+- Config SePay lưu an toàn
+
+## Step 17. Build payment request generation
+Implement:
+- Tạo payment reference cho order
+- Tạo transaction pending
+- Trả thông tin thanh toán cho bot
+
+## Expected Output
+- Bot gửi hướng dẫn thanh toán được
+
+## Step 18. Build SePay webhook
+Implement:
+- Endpoint nhận callback
+- Verify hợp lệ theo khả năng tích hợp
+- Idempotent processing
+- Map đúng order
+- Update transaction success
+- Update order paid
+
+## Expected Output
+- Thanh toán thành công làm đổi trạng thái order
+
+---
+
+# Phase 7 — Auto Delivery
+
+## Step 19. Build delivery service
+Implement:
+- Trigger sau khi order paid
+- Lấy stock available
+- Đánh dấu delivered
+- Gửi nội dung hàng qua Telegram
+- Update order delivered
+- Log lỗi nếu có
+
+## Expected Output
+- User nhận hàng tự động
+
+## Step 20. Handle out-of-stock after payment
+Implement:
+- Nếu paid nhưng không còn stock:
+  - không giao
+  - log lỗi
+  - đánh dấu cần xử lý tay
+
+## Expected Output
+- Hệ thống không fail silent
+
+---
+
+# Phase 8 — Transactions & Customers UI
+
+## Step 21. Build transactions page
+Implement:
+- List
+- Search
+- Filter type
+- Refresh
+
+## Expected Output
+- Transactions hiển thị đúng
+
+## Step 22. Build customers page
+Implement:
+- List khách hàng
+- Search theo chat ID / username
+- Sort mới nhất
+- Link tới detail
+
+## Expected Output
+- Customers page usable
+
+## Step 23. Build customer detail
+Implement:
+- Hồ sơ khách hàng
+- Số dư
+- Đã chi
+- Tổng đơn
+- Hoạt động cuối
+- Tab order history
+- Tab transaction history
+
+## Expected Output
+- Detail view hoạt động giống intent UI mẫu
+
+---
+
+# Phase 9 — Bot Logs
+
+## Step 24. Ensure comprehensive logging
+Log ít nhất:
+- /start
+- chọn ngôn ngữ
+- chọn sản phẩm
+- tạo đơn
+- thanh toán
+- giao hàng
+- lỗi bot
+
+## Expected Output
+- Có dữ liệu log thật
+
+## Step 25. Build bot logs page
+Implement:
+- Search
+- Filter action
+- Refresh
+- Auto refresh
+
+## Expected Output
+- Admin debug bot dễ dàng
+
+---
+
+# Phase 10 — Promotions (Basic)
+
+## Step 26. Build promotion UI
+Implement:
+- Form tạo CTKM
+- Loại CTKM
+- Đối tượng áp dụng
+- Thời gian
+- Priority
+
+## Expected Output
+- Tạo promotion record thành công
+
+## Step 27. Support one simple promotion rule
+Ưu tiên:
+- `mua X tặng Y`
+
+## Expected Output
+- Có ít nhất 1 rule cơ bản hoạt động hoặc được lưu đúng cấu trúc cho use later
+
+---
+
+# Phase 11 — End-to-End QA
+
+## Step 28. Run manual checklist
+AI agent phải tự test và báo pass/fail cho các case:
+
+1. Login admin
+2. Tạo category
+3. Tạo product
+4. Nhập stock
+5. Cấu hình bot
+6. User `/start`
+7. User xem sản phẩm
+8. User tạo order
+9. User thanh toán
+10. Webhook cập nhật order
+11. Bot giao hàng
+12. Admin xem order / transaction / customer / log
+
+## Expected Output
+- Checklist rõ ràng pass/fail
+
+## Step 29. Create demo seed
+Seed data gồm:
+- 1 admin
+- 2 categories
+- 3 products
+- 20 stock demo
+- 2 customers
+- order / transaction sample
+
+## Expected Output
+- Demo được ngay sau setup
+
+---
+
+# Phase 12 — Documentation
+
+## Step 30. Write operational docs
+Tài liệu phải gồm:
+- Cài đặt môi trường
+- Chạy backend
+- Chạy frontend
+- Cấu hình Telegram bot
+- Cấu hình SePay
+- Tạo sản phẩm
+- Nạp stock
+- Test mua hàng
+
+## Expected Output
+- Team khác hoặc AI khác có thể tiếp tục triển khai
+
+---
+
+## 13. Technical Implementation Constraints for Gemini Pro 3
+
+Gemini Pro 3 phải tuân thủ các nguyên tắc sau khi code:
+
+1. Không thêm package hoặc framework không cần thiết
+2. Ưu tiên code dễ maintain, chia module rõ ràng
+3. Mọi dữ liệu nhạy cảm dùng environment variables
+4. Mọi webhook phải xử lý idempotent
+5. Mọi flow giao hàng phải tránh duplicate delivery
+6. UI admin phải dark theme, sidebar-based, gần với structure mẫu
+7. Khi chưa chắc về một behavior, ưu tiên phương án đơn giản nhất của MVP
+8. Không triển khai feature ngoài PRD
+9. Sau mỗi phase phải tự mô tả:
+   - đã làm gì
+   - file nào thay đổi
+   - cách test
+   - kết quả test
+
+---
+
+## 14. Final Definition of Done
+
+Hệ thống chỉ được coi là hoàn thành khi đáp ứng đồng thời:
+
+- Admin login/logout hoạt động
+- Có dashboard tổng quan
+- Có CRUD danh mục
+- Có CRUD sản phẩm
+- Có nhập stock nhiều dòng
+- Có cấu hình Telegram bot
+- Bot nhận `/start`
+- Bot hiển thị sản phẩm
+- Bot tạo đơn
+- SePay cập nhật thanh toán tự động
+- Hệ thống giao hàng tự động
+- Admin xem được orders
+- Admin xem được transactions
+- Admin xem được customers
+- Admin xem được bot logs
+
+---
+
+## 15. Master Prompt for Gemini Pro 3
+
+Sử dụng prompt sau để bắt đầu triển khai:
+
+### Prompt
+Bạn là AI coding agent chịu trách nhiệm xây dựng hệ thống web admin quản trị bán hàng qua Telegram Bot với SePay là phương thức thanh toán chính.  
+Hãy triển khai đúng theo PRD này, không thêm tính năng ngoài phạm vi.  
+Ưu tiên hoàn thiện MVP end-to-end theo flow:
+
+1. admin thêm sản phẩm
+2. bot Telegram hiển thị sản phẩm
+3. user tạo đơn
+4. hệ thống tạo payment request
+5. SePay callback thành công
+6. order chuyển paid
+7. hệ thống tự động giao stock qua Telegram
+8. admin xem được order, transaction, customer và bot log
+
+Hãy làm tuần tự theo từng phase trong PRD.  
+Sau mỗi phase:
+- liệt kê những gì đã làm
+- nêu file thay đổi
+- cách chạy/test
+- kết quả test
+- các TODO còn lại của phase tiếp theo
+
+Không bỏ qua bước kiểm thử.  
+Không tự ý mở rộng scope.  
+Không thay đổi business logic cốt lõi đã mô tả trong PRD.
+
+---
