@@ -140,6 +140,24 @@ export default function SettingsBot() {
     );
   };
 
+  const handleStartBot = () => {
+    const token = form.getValues("botToken");
+    const adminChatId = form.getValues("adminChatId");
+    saveConfig.mutate(
+      { data: { botToken: token, adminChatId: adminChatId || null } },
+      {
+        onSuccess: () => {
+          setWebhook.mutate(undefined, {
+            onSuccess: () => {
+              toast({ title: "Đã khởi động Bot" });
+              queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
+            },
+          });
+        },
+      }
+    );
+  };
+
   const handleDisconnect = () => {
     if (!confirm("Bạn có chắc muốn ngắt kết nối Bot? Cửa hàng sẽ không thể hoạt động.")) return;
     
@@ -301,11 +319,11 @@ export default function SettingsBot() {
             <div className="flex gap-2 w-full">
               <Button 
                 className="flex-1" 
-                onClick={handleSetWebhook} 
-                disabled={setWebhook.isPending || !config?.botToken}
+                onClick={handleStartBot} 
+                disabled={saveConfig.isPending || setWebhook.isPending || !form.watch("botToken")}
                 data-testid="btn-start-bot"
               >
-                {setWebhook.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                {saveConfig.isPending || setWebhook.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                 Khởi động Bot
               </Button>
               <Button 
