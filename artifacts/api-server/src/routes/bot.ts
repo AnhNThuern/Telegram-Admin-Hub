@@ -19,6 +19,56 @@ async function getConfig() {
   return config ?? null;
 }
 
+const BOT_COMMANDS_VI = [
+  { command: "start",    description: "Mở menu chính" },
+  { command: "naptien",  description: "Nạp tiền vào ví" },
+  { command: "lichsu",   description: "Lịch sử giao dịch ví" },
+  { command: "cancel",   description: "Hủy đơn đang chờ thanh toán" },
+  { command: "language", description: "Đổi ngôn ngữ / Change language" },
+];
+
+const BOT_COMMANDS_EN = [
+  { command: "start",    description: "Open main menu" },
+  { command: "naptien",  description: "Top up wallet" },
+  { command: "lichsu",   description: "Wallet transaction history" },
+  { command: "cancel",   description: "Cancel pending order" },
+  { command: "language", description: "Change language / Đổi ngôn ngữ" },
+];
+
+/**
+ * Register bot commands with Telegram so they appear in the "/" autocomplete
+ * menu. Called after a successful setWebhook and on server startup.
+ * Registers both the default (Vietnamese) list and the English-locale list.
+ */
+export async function registerBotCommands(botToken: string): Promise<void> {
+  const base = `https://api.telegram.org/bot${botToken}/setMyCommands`;
+
+  const calls = [
+    fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands: BOT_COMMANDS_VI }),
+    }),
+    fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands: BOT_COMMANDS_EN, language_code: "en" }),
+    }),
+  ];
+
+  const results = await Promise.allSettled(calls);
+  for (const result of results) {
+    if (result.status === "rejected") {
+      logger.warn({ err: result.reason }, "setMyCommands call failed");
+    } else {
+      const data = await result.value.json() as { ok: boolean; description?: string };
+      if (!data.ok) {
+        logger.warn({ description: data.description }, "setMyCommands returned not-ok");
+      }
+    }
+  }
+}
+
 function maskToken(token: string | null | undefined): string | null {
   if (!token) return null;
   if (token.length <= 8) return "****";
@@ -167,6 +217,12 @@ router.post("/bot/set-webhook", requireAuth, async (_req, res): Promise<void> =>
       await db.update(botConfigsTable)
         .set({ webhookUrl, webhookStatus: "active", isConnected: true, webhookSecretToken: secretToken })
         .where(eq(botConfigsTable.id, config.id));
+
+      // Register bot commands in the background — non-critical, don't block the response
+      registerBotCommands(config.botToken).catch(err =>
+        logger.warn({ err }, "registerBotCommands failed after setWebhook")
+      );
+
       res.json({ message: "Webhook set successfully", webhookUrl });
     } else {
       res.status(400).json({ error: data.description ?? "Failed to set webhook" });
