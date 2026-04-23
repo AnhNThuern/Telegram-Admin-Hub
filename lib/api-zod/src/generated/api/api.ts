@@ -1169,3 +1169,67 @@ export const HandleSepayWebhookBody = zod.object({}).passthrough();
 export const HandleSepayWebhookResponse = zod.object({
   message: zod.string(),
 });
+
+/**
+ * @summary List all i18n strings
+ */
+export const ListI18nStringsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      key: zod.string(),
+      vi: zod.string(),
+      en: zod.string(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Bulk update i18n strings
+ */
+export const BulkUpdateI18nStringsBody = zod.object({
+  updates: zod.array(
+    zod.object({
+      key: zod.string(),
+      vi: zod.string().optional(),
+      en: zod.string().optional(),
+    }),
+  ),
+});
+
+export const BulkUpdateI18nStringsResponse = zod.object({
+  updated: zod.number(),
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      key: zod.string(),
+      vi: zod.string(),
+      en: zod.string(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Update a single i18n string by key
+ */
+export const UpdateI18nStringParams = zod.object({
+  key: zod.coerce.string(),
+});
+
+export const UpdateI18nStringBody = zod.object({
+  vi: zod.string().optional(),
+  en: zod.string().optional(),
+});
+
+export const UpdateI18nStringResponse = zod.object({
+  id: zod.number(),
+  key: zod.string(),
+  vi: zod.string(),
+  en: zod.string(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});

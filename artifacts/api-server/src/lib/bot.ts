@@ -1,6 +1,7 @@
 import { db, botLogsTable, customersTable, ordersTable, orderItemsTable, productStocksTable, transactionsTable, productsTable, promotionsTable, botPendingActionsTable } from "@workspace/db";
 import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count } from "drizzle-orm";
 import { logger } from "./logger";
+import { t, tMany, type Lang } from "./i18n";
 
 // Persistent conversation state for customers awaiting promo code entry.
 // Stored in `bot_pending_actions` so in-flight checkouts survive an API
@@ -214,23 +215,36 @@ const DEFAULT_INFO_TEXT =
   "• Hỗ trợ nhanh chóng\n\n" +
   "💳 <b>Thanh toán:</b>\nChuyển khoản ngân hàng (QR)";
 
-// Persistent reply keyboard shown below the chat input. Built once per request
-// from the live config so any admin edits to the customizable info text take
-// effect immediately on the next interaction.
-function mainReplyKeyboard(): Record<string, unknown> {
+// Persistent reply keyboard shown below the chat input. Built per-request so
+// any admin edits to the customizable info text or i18n strings take effect
+// immediately on the next interaction.
+async function mainReplyKeyboard(lang: Lang = "vi"): Promise<Record<string, unknown>> {
+  const [buy, products, account, topup, voucher, warranty, support, info, settings] = await Promise.all([
+    t("btn.buy", lang),
+    t("btn.products", lang),
+    t("btn.account", lang),
+    t("btn.topup", lang),
+    t("btn.voucher", lang),
+    t("btn.warranty", lang),
+    t("btn.support", lang),
+    t("btn.info", lang),
+    t("btn.settings", lang),
+  ]);
   return {
     keyboard: [
-      [{ text: "🛒 Mua hàng" }, { text: "📋 Sản phẩm" }],
-      [{ text: "👤 Tài khoản" }, { text: "💰 Nạp ví" }],
-      [{ text: "🎟️ Voucher" }, { text: "🛡️ Bảo hành" }, { text: "💬 Hỗ trợ" }],
-      [{ text: "ℹ️ Thông tin" }],
+      [{ text: buy }, { text: products }],
+      [{ text: account }, { text: topup }],
+      [{ text: voucher }, { text: warranty }, { text: support }],
+      [{ text: info }, { text: settings }],
     ],
     resize_keyboard: true,
     is_persistent: true,
   };
 }
 
-const REPLY_KEYBOARD_BUTTONS = new Set([
+// All button text variants across both languages — used to recognize a reply-
+// keyboard tap regardless of the user's current locale.
+const VI_REPLY_KEYBOARD_BUTTONS = new Set([
   "🛒 Mua hàng",
   "📋 Sản phẩm",
   "👤 Tài khoản",
@@ -239,7 +253,44 @@ const REPLY_KEYBOARD_BUTTONS = new Set([
   "🛡️ Bảo hành",
   "💬 Hỗ trợ",
   "ℹ️ Thông tin",
+  "⚙️ Cài đặt",
 ]);
+
+const EN_REPLY_KEYBOARD_BUTTONS = new Set([
+  "🛒 Shop",
+  "📋 Products",
+  "👤 Account",
+  "💰 Top Up",
+  "🎟️ Voucher",
+  "🛡️ Warranty",
+  "💬 Support",
+  "ℹ️ Info",
+  "⚙️ Settings",
+]);
+
+// Map button text to a stable action key, language-independent
+const BUTTON_ACTION: Record<string, string> = {
+  // vi
+  "🛒 Mua hàng": "shop",
+  "📋 Sản phẩm": "shop",
+  "👤 Tài khoản": "account",
+  "💰 Nạp ví": "topup",
+  "🎟️ Voucher": "voucher",
+  "🛡️ Bảo hành": "warranty",
+  "💬 Hỗ trợ": "support",
+  "ℹ️ Thông tin": "info",
+  "⚙️ Cài đặt": "settings",
+  // en
+  "🛒 Shop": "shop",
+  "📋 Products": "shop",
+  "👤 Account": "account",
+  "💰 Top Up": "topup",
+  "🎟️ Voucher": "voucher",
+  "🛡️ Warranty": "warranty",
+  "💬 Support": "support",
+  "ℹ️ Info": "info",
+  "⚙️ Settings": "settings",
+};
 
 async function getBotToken(): Promise<string | null> {
   const { botToken } = await getBotConfig();
@@ -460,7 +511,7 @@ export async function broadcastProductNotification(
   return { sent, total, botConfigured: true };
 }
 
-async function upsertCustomer(from: { id: number; first_name?: string; last_name?: string; username?: string }): Promise<typeof customersTable.$inferSelect> {
+async function upsertCustomer(from: { id: number; first_name?: string; last_name?: string; username?: string }): Promise<{ customer: typeof customersTable.$inferSelect; isNew: boolean }> {
   const chatId = String(from.id);
   const [existing] = await db.select().from(customersTable).where(eq(customersTable.chatId, chatId));
   if (existing) {
@@ -470,16 +521,21 @@ async function upsertCustomer(from: { id: number; first_name?: string; last_name
       username: from.username ?? existing.username,
       lastActiveAt: new Date(),
     }).where(eq(customersTable.id, existing.id)).returning();
-    return updated;
+    return { customer: updated, isNew: false };
   }
   const [customer] = await db.insert(customersTable).values({
     chatId,
     firstName: from.first_name,
     lastName: from.last_name,
     username: from.username,
+    language: "vi",
     lastActiveAt: new Date(),
   }).returning();
-  return customer;
+  return { customer, isNew: true };
+}
+
+async function saveCustomerLanguage(customerId: number, lang: Lang): Promise<void> {
+  await db.update(customersTable).set({ language: lang }).where(eq(customersTable.id, customerId));
 }
 
 /**
@@ -516,8 +572,8 @@ function mdToHtml(text: string): string {
     .replace(/(?<!_)_([^_\n]+?)_(?!_)/g, "<i>$1</i>");
 }
 
-async function showMainMenu(chatId: number | string, customerName?: string, editMessageId?: number): Promise<void> {
-  const name = customerName ?? "bạn";
+async function showMainMenu(chatId: number | string, customerName?: string, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
+  const name = customerName ?? (lang === "en" ? "there" : "bạn");
   const { shopName, welcomeMessage } = await getBotConfig();
 
   // Escape dynamic values so special chars (&, <, >) do not break Telegram HTML.
@@ -527,28 +583,51 @@ async function showMainMenu(chatId: number | string, customerName?: string, edit
   let welcomeText: string;
   if (welcomeMessage && welcomeMessage.trim()) {
     // Admin has configured a custom welcome message.
-    // Processing order (important for safety):
-    //   1. Escape the raw template to neutralise any accidental HTML from admin input
-    //   2. Apply Markdown → HTML conversion on the escaped template
-    //   3. Substitute {name}/{shop_name} with safe, pre-escaped bold values
     const escapedTemplate = escapeHtmlEntities(welcomeMessage);
     const withMarkdown = mdToHtml(escapedTemplate);
     welcomeText = withMarkdown
       .replace(/\{name\}/g, `<b>${safeName}</b>`)
-      .replace(/\{shop_name\}/g, safeShopName ? `<b>${safeShopName}</b>` : "cửa hàng");
+      .replace(/\{shop_name\}/g, safeShopName ? `<b>${safeShopName}</b>` : (lang === "en" ? "our shop" : "cửa hàng"));
   } else {
-    const shop = safeShopName ? `<b>${safeShopName}</b>` : "cửa hàng";
-    welcomeText = `👋 Chào mừng <b>${safeName}</b> đến với ${shop}!\n\nChọn tùy chọn bên dưới:`;
+    const defaultTemplate = await t("welcome.default", lang);
+    const shop = safeShopName ? `<b>${safeShopName}</b>` : (lang === "en" ? "our shop" : "cửa hàng");
+    welcomeText = defaultTemplate
+      .replace(/\{name\}/g, `<b>${safeName}</b>`)
+      .replace(/\{shop\}/g, shop);
   }
+
+  const [browseLabel, ordersLabel, walletLabel] = await Promise.all([
+    t("btn.browse_products", lang),
+    t("btn.my_orders", lang),
+    t("btn.wallet_history", lang),
+  ]);
 
   // Render the inline menu (in place when navigating). The persistent reply
   // keyboard is attached separately on /start so it survives across edits.
   await renderView(chatId, editMessageId, welcomeText, {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "🛍️ Xem sản phẩm", callback_data: "browse_products" }],
-        [{ text: "📦 Đơn hàng của tôi", callback_data: "my_orders" }],
-        [{ text: "💳 Lịch sử ví", callback_data: "wallet_history" }],
+        [{ text: browseLabel, callback_data: "browse_products" }],
+        [{ text: ordersLabel, callback_data: "my_orders" }],
+        [{ text: walletLabel, callback_data: "wallet_history" }],
+      ],
+    },
+  });
+}
+
+// Show language selection prompt. Shown to new users on /start or when they
+// request a language change from the settings menu.
+async function showLanguageSelection(chatId: number | string): Promise<void> {
+  const prompt = await t("lang.prompt", "vi"); // always shown in both languages (bilingual)
+  const viLabel = await t("lang.vi", "vi");
+  const enLabel = await t("lang.en", "en");
+  await sendMessage(chatId, prompt, {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: viLabel, callback_data: "set_lang_vi" },
+          { text: enLabel, callback_data: "set_lang_en" },
+        ],
       ],
     },
   });
@@ -558,13 +637,29 @@ async function showMainMenu(chatId: number | string, customerName?: string, edit
 // reply keyboard when it's attached to a freshly sent message (it can't be
 // added via editMessage), so we send a tiny anchor message whenever we want to
 // guarantee the keyboard is visible — typically right after /start.
-async function showReplyKeyboard(chatId: number | string): Promise<void> {
-  await sendMessage(chatId, "⌨️ Menu nhanh đã sẵn sàng — bấm nút bên dưới bất cứ lúc nào.", {
-    reply_markup: mainReplyKeyboard(),
+async function showReplyKeyboard(chatId: number | string, lang: Lang = "vi"): Promise<void> {
+  const label = await t("welcome.keyboard_ready", lang);
+  await sendMessage(chatId, label, {
+    reply_markup: await mainReplyKeyboard(lang),
   });
 }
 
-async function showAccountInfo(chatId: number | string, customer: typeof customersTable.$inferSelect): Promise<void> {
+// Show the settings menu (language change, etc.)
+async function showSettingsMenu(chatId: number | string, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
+  const title = lang === "en" ? "⚙️ <b>Settings</b>" : "⚙️ <b>Cài đặt</b>";
+  const langLabel = await t("btn.language", lang);
+  const homeLabel = await t("btn.home", lang);
+  await renderView(chatId, editMessageId, title, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: langLabel, callback_data: "change_lang" }],
+        [{ text: homeLabel, callback_data: "main_menu" }],
+      ],
+    },
+  });
+}
+
+async function showAccountInfo(chatId: number | string, customer: typeof customersTable.$inferSelect, lang: Lang = "vi"): Promise<void> {
   const { sql: drizzleSql } = await import("drizzle-orm");
   const balance = parseFloat(customer.balance ?? "0");
   const [orderStats] = await db.select({
@@ -574,32 +669,40 @@ async function showAccountInfo(chatId: number | string, customer: typeof custome
 
   const totalOrders = Number(orderStats?.totalOrders ?? 0);
   const totalSpent = Number(orderStats?.totalSpent ?? 0);
-  const username = customer.username ? `@${customer.username}` : "(chưa có)";
+  const noUsername = await t("account.no_username", lang);
+  const username = customer.username ? `@${customer.username}` : noUsername;
 
+  const strings = await tMany([
+    "account.title", "account.id", "account.name", "account.username",
+    "account.balance", "account.total_orders", "account.total_spent",
+    "account.topup_cmd", "account.history_cmd"
+  ], lang);
+
+  const locale = lang === "en" ? "en-US" : "vi-VN";
   const msg =
-    `👤 <b>TÀI KHOẢN CỦA BẠN</b>\n\n` +
-    `🆔 ID: <code>${customer.chatId}</code>\n` +
-    `📛 Tên: ${customer.firstName ?? "-"}${customer.lastName ? " " + customer.lastName : ""}\n` +
-    `💬 Username: ${username}\n\n` +
-    `💰 <b>Số dư ví:</b> ${balance.toLocaleString("vi-VN")}đ\n` +
-    `📦 <b>Tổng đơn hàng:</b> ${totalOrders}\n` +
-    `💳 <b>Tổng chi tiêu:</b> ${totalSpent.toLocaleString("vi-VN")}đ\n\n` +
-    `<i>Nạp ví:</i> <code>/naptien [số tiền]</code>\n` +
-    `<i>Lịch sử ví:</i> <code>/lichsu</code>`;
+    `${strings["account.title"]}\n\n` +
+    `${strings["account.id"]} <code>${customer.chatId}</code>\n` +
+    `${strings["account.name"]} ${customer.firstName ?? "-"}${customer.lastName ? " " + customer.lastName : ""}\n` +
+    `${strings["account.username"]} ${username}\n\n` +
+    `${strings["account.balance"]} ${balance.toLocaleString(locale)}đ\n` +
+    `${strings["account.total_orders"]} ${totalOrders}\n` +
+    `${strings["account.total_spent"]} ${totalSpent.toLocaleString(locale)}đ\n\n` +
+    `${strings["account.topup_cmd"]}\n` +
+    `${strings["account.history_cmd"]}`;
   await sendMessage(chatId, msg);
 }
 
-async function showTopupInstructions(chatId: number | string): Promise<void> {
+async function showTopupInstructions(chatId: number | string, lang: Lang = "vi"): Promise<void> {
+  const strings = await tMany(["topup.title", "topup.instruction", "topup.minimum", "topup.qr_note"], lang);
   const msg =
-    `💰 <b>NẠP TIỀN VÀO VÍ</b>\n\n` +
-    `Sử dụng lệnh: <code>/naptien [số tiền]</code>\n` +
-    `Ví dụ: <code>/naptien 100000</code>\n\n` +
-    `Số tiền nạp tối thiểu: <b>10.000đ</b>\n` +
-    `Bot sẽ gửi mã QR để bạn quét và chuyển khoản.`;
+    `${strings["topup.title"]}\n\n` +
+    `${strings["topup.instruction"]}\n\n` +
+    `${strings["topup.minimum"]}\n` +
+    `${strings["topup.qr_note"]}`;
   await sendMessage(chatId, msg);
 }
 
-async function showActivePromotions(chatId: number | string): Promise<void> {
+async function showActivePromotions(chatId: number | string, lang: Lang = "vi"): Promise<void> {
   // Show promotions that are currently active and not expired.
   const now = new Date();
   const promos = await db.select().from(promotionsTable)
@@ -611,40 +714,49 @@ async function showActivePromotions(chatId: number | string): Promise<void> {
     return true;
   }).slice(0, 10);
 
+  const strings = await tMany(["voucher.title", "voucher.none", "voucher.enter_hint"], lang);
+  const locale = lang === "en" ? "en-US" : "vi-VN";
+
   if (visible.length === 0) {
-    await sendMessage(chatId, "🎟️ <b>VOUCHER HIỆN CÓ</b>\n\n<i>Hiện chưa có mã giảm giá nào đang hoạt động.</i>");
+    await sendMessage(chatId, `${strings["voucher.title"]}\n\n${strings["voucher.none"]}`);
     return;
   }
-  let msg = "🎟️ <b>VOUCHER HIỆN CÓ</b>\n\n";
+  let msg = `${strings["voucher.title"]}\n\n`;
+  const discountWord = lang === "en" ? "off" : "giảm";
   for (const p of visible) {
     const code = (p as unknown as { code?: string }).code;
     const value = (p as unknown as { discountValue?: string }).discountValue;
-    const discountText = p.type === "percentage" ? `${value}%` : `${parseFloat(value ?? "0").toLocaleString("vi-VN")}đ`;
+    const discountText = p.type === "percentage" ? `${value}%` : `${parseFloat(value ?? "0").toLocaleString(locale)}đ`;
     if (code) {
-      msg += `• <code>${code}</code> — ${p.name} (giảm ${discountText})\n`;
+      msg += `• <code>${code}</code> — ${p.name} (${discountWord} ${discountText})\n`;
     } else {
-      msg += `• ${p.name} (giảm ${discountText})\n`;
+      msg += `• ${p.name} (${discountWord} ${discountText})\n`;
     }
   }
-  msg += `\n<i>Nhập mã khi đặt hàng để áp dụng.</i>`;
+  msg += `\n${strings["voucher.enter_hint"]}`;
   await sendMessage(chatId, msg);
 }
 
-async function showCategories(chatId: number | string, editMessageId?: number): Promise<void> {
+async function showCategories(chatId: number | string, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
   const { categoriesTable } = await import("@workspace/db");
   const categories = await db.select().from(categoriesTable).where(eq(categoriesTable.isActive, true));
+  const [noneMsg, backLabel, titleLabel] = await Promise.all([
+    t("cat.none", lang),
+    t("btn.home", lang),
+    t("cat.title", lang),
+  ]);
   if (categories.length === 0) {
-    await renderView(chatId, editMessageId, "❌ Hiện chưa có danh mục nào. Vui lòng quay lại sau.", {
-      reply_markup: { inline_keyboard: [[{ text: "⬅️ Trang chủ", callback_data: "main_menu" }]] },
+    await renderView(chatId, editMessageId, noneMsg, {
+      reply_markup: { inline_keyboard: [[{ text: backLabel, callback_data: "main_menu" }]] },
     });
     return;
   }
   const keyboard = categories.map(c => [{ text: `${c.icon ?? "📁"} ${c.name}`, callback_data: `cat_${c.id}` }]);
-  keyboard.push([{ text: "⬅️ Quay lại", callback_data: "main_menu" }]);
-  await renderView(chatId, editMessageId, "📂 <b>Danh mục sản phẩm:</b>", { reply_markup: { inline_keyboard: keyboard } });
+  keyboard.push([{ text: await t("btn.back", lang), callback_data: "main_menu" }]);
+  await renderView(chatId, editMessageId, titleLabel, { reply_markup: { inline_keyboard: keyboard } });
 }
 
-async function showProducts(chatId: number | string, categoryId: number, editMessageId?: number): Promise<void> {
+async function showProducts(chatId: number | string, categoryId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
   const { sql } = await import("drizzle-orm");
   const products = await db.select({
     id: productsTable.id,
@@ -654,21 +766,28 @@ async function showProducts(chatId: number | string, categoryId: number, editMes
     stockCount: sql<number>`(SELECT COUNT(*) FROM product_stocks WHERE product_id = ${productsTable.id} AND status = 'available')::int`,
   }).from(productsTable).where(and(eq(productsTable.categoryId, categoryId), eq(productsTable.isActive, true)));
 
+  const [noneMsg, backLabel, titleLabel] = await Promise.all([
+    t("prod.none", lang),
+    t("btn.back", lang),
+    t("prod.title", lang),
+  ]);
+  const locale = lang === "en" ? "en-US" : "vi-VN";
+
   if (products.length === 0) {
-    await renderView(chatId, editMessageId, "❌ Danh mục này chưa có sản phẩm.", {
-      reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: "browse_products" }]] },
+    await renderView(chatId, editMessageId, noneMsg, {
+      reply_markup: { inline_keyboard: [[{ text: backLabel, callback_data: "browse_products" }]] },
     });
     return;
   }
   const keyboard = products.map(p => [{
-    text: `${p.productIcon ?? "📦"} ${p.name} - ${parseFloat(p.price).toLocaleString("vi-VN")}đ ${p.stockCount > 0 ? "✅" : "❌"}`,
+    text: `${p.productIcon ?? "📦"} ${p.name} - ${parseFloat(p.price).toLocaleString(locale)}đ ${p.stockCount > 0 ? "✅" : "❌"}`,
     callback_data: `prod_${p.id}`,
   }]);
-  keyboard.push([{ text: "⬅️ Quay lại", callback_data: "browse_products" }]);
-  await renderView(chatId, editMessageId, "🛍️ <b>Danh sách sản phẩm:</b>", { reply_markup: { inline_keyboard: keyboard } });
+  keyboard.push([{ text: backLabel, callback_data: "browse_products" }]);
+  await renderView(chatId, editMessageId, titleLabel, { reply_markup: { inline_keyboard: keyboard } });
 }
 
-async function showProductDetail(chatId: number | string, productId: number, editMessageId?: number): Promise<void> {
+async function showProductDetail(chatId: number | string, productId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
   const { sql } = await import("drizzle-orm");
   const [product] = await db.select({
     id: productsTable.id,
@@ -681,9 +800,16 @@ async function showProductDetail(chatId: number | string, productId: number, edi
     stockCount: sql<number>`(SELECT COUNT(*) FROM product_stocks WHERE product_id = ${productsTable.id} AND status = 'available')::int`,
   }).from(productsTable).where(eq(productsTable.id, productId));
 
+  const strings = await tMany([
+    "prod.not_found", "btn.home", "prod.in_stock", "prod.out_of_stock",
+    "prod.price", "prod.stock", "prod.qty_range", "prod.max_qty",
+    "prod.enter_qty", "prod.stock_request", "btn.back"
+  ], lang);
+  const locale = lang === "en" ? "en-US" : "vi-VN";
+
   if (!product) {
-    await renderView(chatId, editMessageId, "❌ Sản phẩm không tồn tại.", {
-      reply_markup: { inline_keyboard: [[{ text: "⬅️ Trang chủ", callback_data: "main_menu" }]] },
+    await renderView(chatId, editMessageId, strings["prod.not_found"], {
+      reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
     });
     return;
   }
@@ -693,15 +819,17 @@ async function showProductDetail(chatId: number | string, productId: number, edi
     .from(productsTable).where(eq(productsTable.id, productId));
   const categoryId = productCategory?.categoryId;
 
-  const priceFormatted = parseFloat(product.price).toLocaleString("vi-VN");
-  const originalFormatted = product.originalPrice ? `<s>${parseFloat(product.originalPrice).toLocaleString("vi-VN")}đ</s> ` : "";
-  const stockText = product.stockCount > 0 ? `✅ Còn hàng (${product.stockCount})` : "❌ Hết hàng";
+  const priceFormatted = parseFloat(product.price).toLocaleString(locale);
+  const originalFormatted = product.originalPrice ? `<s>${parseFloat(product.originalPrice).toLocaleString(locale)}đ</s> ` : "";
+  const stockText = product.stockCount > 0
+    ? `${strings["prod.in_stock"]} (${product.stockCount})`
+    : strings["prod.out_of_stock"];
 
   let msg = `📦 <b>${product.name}</b>\n`;
   if (product.description) msg += `\n${product.description}\n`;
-  msg += `\n💰 Giá: ${originalFormatted}<b>${priceFormatted}đ</b>`;
-  msg += `\n📊 Tồn kho: ${stockText}`;
-  msg += `\n🔢 Số lượng: ${product.minQuantity} - ${product.maxQuantity}`;
+  msg += `\n${strings["prod.price"]} ${originalFormatted}<b>${priceFormatted}đ</b>`;
+  msg += `\n${strings["prod.stock"]} ${stockText}`;
+  msg += `\n${strings["prod.qty_range"]} ${product.minQuantity} - ${product.maxQuantity}`;
 
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
   const minQ = product.minQuantity;
@@ -714,30 +842,24 @@ async function showProductDetail(chatId: number | string, productId: number, edi
   // 1 - 3" but the keyboard only offered "1" when stock was 1.
   if (product.stockCount >= minQ) {
     const row: Array<{ text: string; callback_data: string }> = [];
-    // Option 1: minimum quantity (usually 1)
     row.push({ text: `${minQ}`, callback_data: `qty_${productId}_${minQ}` });
-    // Option 2: maximum allowed — only show if it's larger than the minimum
     if (maxQ > minQ) {
-      row.push({ text: `Tối đa (${maxQ})`, callback_data: `qty_${productId}_${maxQ}` });
+      row.push({ text: `${strings["prod.max_qty"]} (${maxQ})`, callback_data: `qty_${productId}_${maxQ}` });
     }
     keyboard.push(row);
-    // Option 3: let the user type a custom quantity — only when there's a real range to pick from
     if (maxQ > minQ) {
-      keyboard.push([{ text: "✏️ Nhập số lượng", callback_data: `qty_input_${productId}` }]);
+      keyboard.push([{ text: strings["prod.enter_qty"], callback_data: `qty_input_${productId}` }]);
     }
   } else {
-    // Out of stock — offer the customer a way to request a restock notification
-    keyboard.push([{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }]);
+    keyboard.push([{ text: strings["prod.stock_request"], callback_data: `stock_request_${productId}` }]);
   }
-  // "Back" returns to the product list of the same category if known, otherwise to the
-  // category list. We also always offer a quick way home.
   const backRow: Array<{ text: string; callback_data: string }> = [];
   if (categoryId !== undefined && categoryId !== null) {
-    backRow.push({ text: "⬅️ Quay lại", callback_data: `cat_${categoryId}` });
+    backRow.push({ text: strings["btn.back"], callback_data: `cat_${categoryId}` });
   } else {
-    backRow.push({ text: "⬅️ Quay lại", callback_data: "browse_products" });
+    backRow.push({ text: strings["btn.back"], callback_data: "browse_products" });
   }
-  backRow.push({ text: "🏠 Trang chủ", callback_data: "main_menu" });
+  backRow.push({ text: strings["btn.home"], callback_data: "main_menu" });
   keyboard.push(backRow);
 
   await renderView(chatId, editMessageId, msg, { reply_markup: { inline_keyboard: keyboard } });
@@ -1679,8 +1801,9 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       const chatId = msg.chat.id;
       const text = msg.text ?? "";
 
-      const customer = await upsertCustomer(from);
+      const { customer, isNew } = await upsertCustomer(from);
       if (!customer.isActive) return;
+      const lang = (customer.language ?? "vi") as Lang;
 
       await logBotAction("message", String(chatId), customer.id, text);
 
@@ -1688,42 +1811,66 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         await clearAwaitingPromo(chatId);
         clearAwaitingQuantity(chatId);
         await logBotAction("start", String(chatId), customer.id, text);
-        // Anchor message that installs the persistent reply keyboard.
-        await showReplyKeyboard(chatId);
-        // Handle deep-link parameter: /start prod_<id>
-        const startParam = text.startsWith("/start ") ? text.slice(7).trim() : "";
-        if (startParam.startsWith("prod_")) {
-          const deepProductId = parseInt(startParam.replace("prod_", ""), 10);
-          if (!isNaN(deepProductId)) {
-            await showProductDetail(chatId, deepProductId);
-          } else {
-            await showMainMenu(chatId, from.first_name);
-          }
+
+        if (isNew) {
+          // New user: show language selection before anything else
+          await showLanguageSelection(chatId);
         } else {
-          await showMainMenu(chatId, from.first_name);
+          // Returning user: install keyboard in their language and show main menu
+          await showReplyKeyboard(chatId, lang);
+          // Handle deep-link parameter: /start prod_<id>
+          const startParam = text.startsWith("/start ") ? text.slice(7).trim() : "";
+          if (startParam.startsWith("prod_")) {
+            const deepProductId = parseInt(startParam.replace("prod_", ""), 10);
+            if (!isNaN(deepProductId)) {
+              await showProductDetail(chatId, deepProductId, undefined, lang);
+            } else {
+              await showMainMenu(chatId, from.first_name, undefined, lang);
+            }
+          } else {
+            await showMainMenu(chatId, from.first_name, undefined, lang);
+          }
         }
-      } else if (REPLY_KEYBOARD_BUTTONS.has(text.trim())) {
+      } else if (VI_REPLY_KEYBOARD_BUTTONS.has(text.trim()) || EN_REPLY_KEYBOARD_BUTTONS.has(text.trim())) {
         // A tap on the persistent reply keyboard. Always cancel any pending
         // quantity / promo prompt — the user is starting a new flow.
         await clearAwaitingPromo(chatId);
         clearAwaitingQuantity(chatId);
         const btn = text.trim();
+        const action = BUTTON_ACTION[btn] ?? btn;
         await logBotAction("reply_keyboard", String(chatId), customer.id, btn);
         const cfg = await getBotConfig();
-        if (btn === "🛒 Mua hàng" || btn === "📋 Sản phẩm") {
-          await showCategories(chatId);
-        } else if (btn === "👤 Tài khoản") {
-          await showAccountInfo(chatId, customer);
-        } else if (btn === "💰 Nạp ví") {
-          await showTopupInstructions(chatId);
-        } else if (btn === "🎟️ Voucher") {
-          await showActivePromotions(chatId);
-        } else if (btn === "🛡️ Bảo hành") {
-          await sendMessage(chatId, cfg.warrantyText && cfg.warrantyText.trim().length > 0 ? cfg.warrantyText : DEFAULT_WARRANTY_TEXT);
-        } else if (btn === "💬 Hỗ trợ") {
-          await sendMessage(chatId, cfg.supportText && cfg.supportText.trim().length > 0 ? cfg.supportText : DEFAULT_SUPPORT_TEXT);
-        } else if (btn === "ℹ️ Thông tin") {
-          await sendMessage(chatId, cfg.infoText && cfg.infoText.trim().length > 0 ? cfg.infoText : DEFAULT_INFO_TEXT);
+        if (action === "shop") {
+          await showCategories(chatId, undefined, lang);
+        } else if (action === "account") {
+          await showAccountInfo(chatId, customer, lang);
+        } else if (action === "topup") {
+          await showTopupInstructions(chatId, lang);
+        } else if (action === "voucher") {
+          await showActivePromotions(chatId, lang);
+        } else if (action === "warranty") {
+          const warrantyDefault = await t("warranty.default", lang);
+          const warrantyTitle = await t("warranty.title", lang);
+          const warrantyContent = cfg.warrantyText && cfg.warrantyText.trim().length > 0
+            ? cfg.warrantyText
+            : `${warrantyTitle}\n\n${warrantyDefault}`;
+          await sendMessage(chatId, warrantyContent);
+        } else if (action === "support") {
+          const supportDefault = await t("support.default", lang);
+          const supportTitle = await t("support.title", lang);
+          const supportContent = cfg.supportText && cfg.supportText.trim().length > 0
+            ? cfg.supportText
+            : `${supportTitle}\n\n${supportDefault}`;
+          await sendMessage(chatId, supportContent);
+        } else if (action === "info") {
+          const infoDefault = await t("info.default", lang);
+          const infoTitle = await t("info.title", lang);
+          const infoContent = cfg.infoText && cfg.infoText.trim().length > 0
+            ? cfg.infoText
+            : `${infoTitle}\n\n${infoDefault}`;
+          await sendMessage(chatId, infoContent);
+        } else if (action === "settings") {
+          await showSettingsMenu(chatId, undefined, lang);
         }
       } else if (text.startsWith("/naptien")) {
         await clearAwaitingPromo(chatId);
@@ -1827,11 +1974,34 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       const messageId = cq.message?.message_id;
 
       await answerCallbackQuery(cq.id);
-      const customer = await upsertCustomer(from);
+      const { customer } = await upsertCustomer(from);
       if (!customer.isActive) return;
+      const lang = (customer.language ?? "vi") as Lang;
 
       const data = cq.data ?? "";
       await logBotAction("callback", String(chatId), customer.id, data);
+
+      // Language selection callbacks (happen before any other nav)
+      if (data === "set_lang_vi" || data === "set_lang_en") {
+        const selectedLang: Lang = data === "set_lang_vi" ? "vi" : "en";
+        await saveCustomerLanguage(customer.id, selectedLang);
+        const confirmKey = selectedLang === "vi" ? "lang.selected_vi" : "lang.selected_en";
+        const confirmMsg = await t(confirmKey, selectedLang);
+        await sendMessage(chatId, confirmMsg);
+        await showReplyKeyboard(chatId, selectedLang);
+        await showMainMenu(chatId, from.first_name, undefined, selectedLang);
+        return;
+      }
+
+      if (data === "change_lang") {
+        await showLanguageSelection(chatId);
+        return;
+      }
+
+      if (data === "settings_menu") {
+        await showSettingsMenu(chatId, messageId, lang);
+        return;
+      }
 
       // Any callback that isn't part of the quantity/confirm flow exits it cleanly.
       const KEEP_QTY_STATE_PREFIXES = ["qty_input_", "promo_enter_", "clear_promo_", "confirm_order_", "reuse_promo_"];
@@ -1840,12 +2010,12 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       }
 
       if (data === "main_menu") {
-        await showMainMenu(chatId, from.first_name, messageId);
+        await showMainMenu(chatId, from.first_name, messageId, lang);
       } else if (data === "browse_products") {
-        await showCategories(chatId, messageId);
+        await showCategories(chatId, messageId, lang);
       } else if (data.startsWith("cat_")) {
         const categoryId = parseInt(data.replace("cat_", ""), 10);
-        await showProducts(chatId, categoryId, messageId);
+        await showProducts(chatId, categoryId, messageId, lang);
         await logBotAction("browse_category", String(chatId), customer.id, `Category ${categoryId}`);
       } else if (data.startsWith("back_to_cat_")) {
         // Legacy callback emitted by older inline keyboards still floating in chat history.
@@ -1854,13 +2024,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         const [row] = await db.select({ categoryId: productsTable.categoryId })
           .from(productsTable).where(eq(productsTable.id, productId));
         if (row?.categoryId !== undefined && row?.categoryId !== null) {
-          await showProducts(chatId, row.categoryId, messageId);
+          await showProducts(chatId, row.categoryId, messageId, lang);
         } else {
-          await showCategories(chatId, messageId);
+          await showCategories(chatId, messageId, lang);
         }
       } else if (data.startsWith("prod_")) {
         const productId = parseInt(data.replace("prod_", ""), 10);
-        await showProductDetail(chatId, productId, messageId);
+        await showProductDetail(chatId, productId, messageId, lang);
         await logBotAction("view_product", String(chatId), customer.id, `Product ${productId}`);
       } else if (data.startsWith("stock_request_")) {
         const productId = parseInt(data.replace("stock_request_", ""), 10);

@@ -14,6 +14,7 @@ import paymentsRouter from "./payments";
 import retrySweepRouter from "./retry_sweep";
 import restockQueueRouter from "./restock_queue";
 import systemSettingsRouter from "./system_settings";
+import i18nRouter from "./i18n";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(paymentsRouter);
 router.use(retrySweepRouter);
 router.use(restockQueueRouter);
 router.use(systemSettingsRouter);
+router.use(i18nRouter);
 
 export default router;

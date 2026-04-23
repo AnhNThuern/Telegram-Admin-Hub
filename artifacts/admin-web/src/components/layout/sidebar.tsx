@@ -14,7 +14,8 @@ import {
   RotateCcw,
   LogOut,
   Menu,
-  X
+  X,
+  Languages
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ const settingsItems = [
   { href: "/settings/bot", label: "Cấu hình Bot", icon: Bot },
   { href: "/settings/payments", label: "Thanh toán", icon: Settings },
   { href: "/settings/retry", label: "Quét lại đơn", icon: RotateCcw },
+  { href: "/settings/i18n", label: "Ngôn ngữ Bot", icon: Languages },
 ];
 
 export function Sidebar() {

@@ -34,6 +34,8 @@ tags:
     description: Bot activity logs
   - name: payments
     description: Payment configuration
+  - name: i18n
+    description: Internationalization strings management
 
 paths:
   /healthz:
@@ -1112,6 +1114,68 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
+
+  # ─── i18n ────────────────────────────────────────────────────────────────────
+  /i18n/strings:
+    get:
+      operationId: listI18nStrings
+      tags: [i18n]
+      summary: List all i18n strings
+      responses:
+        "200":
+          description: All i18n strings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/I18nStringListResponse"
+    patch:
+      operationId: bulkUpdateI18nStrings
+      tags: [i18n]
+      summary: Bulk update i18n strings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUpdateI18nStringsRequest"
+      responses:
+        "200":
+          description: Updated strings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkUpdateI18nStringsResponse"
+
+  /i18n/strings/{key}:
+    patch:
+      operationId: updateI18nString
+      tags: [i18n]
+      summary: Update a single i18n string by key
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateI18nStringRequest"
+      responses:
+        "200":
+          description: Updated string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/I18nString"
+        "404":
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
   schemas:
@@ -2409,3 +2473,78 @@ components:
       required:
         - maxRetryCount
         - maxOrderAgeDays
+
+    I18nString:
+      type: object
+      properties:
+        id:
+          type: integer
+        key:
+          type: string
+        vi:
+          type: string
+        en:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - key
+        - vi
+        - en
+        - createdAt
+        - updatedAt
+
+    I18nStringListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/I18nString"
+      required:
+        - data
+
+    UpdateI18nStringRequest:
+      type: object
+      properties:
+        vi:
+          type: string
+        en:
+          type: string
+
+    BulkUpdateI18nStringsRequest:
+      type: object
+      properties:
+        updates:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              vi:
+                type: string
+              en:
+                type: string
+            required:
+              - key
+      required:
+        - updates
+
+    BulkUpdateI18nStringsResponse:
+      type: object
+      properties:
+        updated:
+          type: integer
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/I18nString"
+      required:
+        - updated
+        - data

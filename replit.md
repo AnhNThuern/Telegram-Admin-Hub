@@ -30,13 +30,13 @@ Vietnamese-language Telegram commerce admin system. Dark-themed admin web UI + R
 | `@workspace/api-server` | `artifacts/api-server` | Express API server |
 | `@workspace/mockup-sandbox` | `artifacts/mockup-sandbox` | Vite component preview server |
 
-## Database Schema (12 tables)
+## Database Schema (14 tables)
 
 - `admins` — admin accounts (username + bcrypt hash)
 - `categories` — product categories with icon + sort
 - `products` — digital goods with price, stock type, metadata
 - `product_stocks` — individual stock lines (content delivered to buyer)
-- `customers` — Telegram users (chatId, balance, stats)
+- `customers` — Telegram users (chatId, balance, stats, **language** column)
 - `orders` — orders with status machine (pending→paid→delivering→delivered)
 - `order_items` — line items per order
 - `transactions` — payment ledger (SePay webhooks + manual)
@@ -44,6 +44,7 @@ Vietnamese-language Telegram commerce admin system. Dark-themed admin web UI + R
 - `bot_configs` — Telegram bot token + webhook state
 - `payment_configs` — SePay credentials
 - `bot_logs` — Telegram update audit log
+- `i18n_strings` — translatable bot messages (key, vi, en)
 
 ## API Routes (all under `/api/`)
 
@@ -58,6 +59,9 @@ Vietnamese-language Telegram commerce admin system. Dark-themed admin web UI + R
 - `GET/POST/PUT/DELETE /promotions`
 - `GET/POST /bot/config` + `/bot/test-token`, `/bot/set-webhook`, `/bot/disconnect`, `/bot/webhook`
 - `GET/POST /payments/config` + `/payments/webhook` (SePay)
+- `GET /i18n/strings` — list all bot i18n strings (auth required)
+- `PATCH /i18n/strings` — bulk update i18n strings (auth required)
+- `PATCH /i18n/strings/:key` — update single i18n string (auth required)
 
 ## Default Credentials
 
@@ -96,7 +100,7 @@ Vietnamese-language Telegram commerce admin system. Dark-themed admin web UI + R
 - **Theme**: Dark-first (chartreuse/electric lime accent), fully Vietnamese UI
 - **Preview path**: `/`
 - **Auth guard**: `useGetMe` on mount; redirects to `/login` if 401
-- **Pages**: Login, Dashboard, Categories, Products, Product Stocks, Orders, Order Detail, Transactions, Customers, Customer Detail, Promotions, Bot Settings, Payment Settings, Bot Logs, 404
+- **Pages**: Login, Dashboard, Categories, Products, Product Stocks, Orders, Order Detail, Transactions, Customers, Customer Detail, Promotions, Bot Settings, Payment Settings, Bot Language Strings (i18n), Bot Logs, 404
 - **Hook imports**: from `@workspace/api-client-react` (orval-generated)
 
 ## Project Status
@@ -105,5 +109,6 @@ Vietnamese-language Telegram commerce admin system. Dark-themed admin web UI + R
 - [x] Task #2: Admin Web UI (dark-themed React frontend — complete)
 - [x] Task #3: Telegram Bot Commerce Flow (lib/bot.ts — complete)
 - [x] Task #4: SePay Payment Integration (lib/payments.ts — complete)
+- [x] Task #5: Multi-language support (VI/EN) — i18n strings table, per-user language preference, bot messages fully i18n, admin i18n management page
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

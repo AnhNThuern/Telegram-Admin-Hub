@@ -528,6 +528,39 @@ export interface UpdateSystemSettingsRequest {
   maxOrderAgeDays: number;
 }
 
+export interface I18nString {
+  id: number;
+  key: string;
+  vi: string;
+  en: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface I18nStringListResponse {
+  data: I18nString[];
+}
+
+export interface UpdateI18nStringRequest {
+  vi?: string;
+  en?: string;
+}
+
+export type BulkUpdateI18nStringsRequestUpdatesItem = {
+  key: string;
+  vi?: string;
+  en?: string;
+};
+
+export interface BulkUpdateI18nStringsRequest {
+  updates: BulkUpdateI18nStringsRequestUpdatesItem[];
+}
+
+export interface BulkUpdateI18nStringsResponse {
+  updated: number;
+  data: I18nString[];
+}
+
 export type ListProductsParams = {
   page?: number;
   limit?: number;

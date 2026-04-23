@@ -11,6 +11,7 @@ export const customersTable = pgTable("customers", {
   balance: numeric("balance", { precision: 12, scale: 2 }).notNull().default("0"),
   totalSpent: numeric("total_spent", { precision: 12, scale: 2 }).notNull().default("0"),
   totalOrders: integer("total_orders").notNull().default(0),
+  language: text("language").notNull().default("vi"),
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

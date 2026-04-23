@@ -23,6 +23,8 @@ import type {
   AdminUser,
   BotConfig,
   BotLogListResponse,
+  BulkUpdateI18nStringsRequest,
+  BulkUpdateI18nStringsResponse,
   Category,
   CategoryList,
   CreateCategoryRequest,
@@ -38,6 +40,8 @@ import type {
   HandleBotWebhookBody,
   HandleSepayWebhookBody,
   HealthStatus,
+  I18nString,
+  I18nStringListResponse,
   ListBotLogsParams,
   ListCustomersParams,
   ListOrdersParams,
@@ -66,6 +70,7 @@ import type {
   Transaction,
   TransactionListResponse,
   UpdateCategoryRequest,
+  UpdateI18nStringRequest,
   UpdateProductRequest,
   UpdatePromotionRequest,
   UpdateSystemSettingsRequest,
@@ -4273,4 +4278,256 @@ export const useHandleSepayWebhook = <
   TContext
 > => {
   return useMutation(getHandleSepayWebhookMutationOptions(options));
+};
+
+/**
+ * @summary List all i18n strings
+ */
+export const getListI18nStringsUrl = () => {
+  return `/api/i18n/strings`;
+};
+
+export const listI18nStrings = async (
+  options?: RequestInit,
+): Promise<I18nStringListResponse> => {
+  return customFetch<I18nStringListResponse>(getListI18nStringsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListI18nStringsQueryKey = () => {
+  return [`/api/i18n/strings`] as const;
+};
+
+export const getListI18nStringsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listI18nStrings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listI18nStrings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListI18nStringsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listI18nStrings>>> = ({
+    signal,
+  }) => listI18nStrings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listI18nStrings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListI18nStringsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listI18nStrings>>
+>;
+export type ListI18nStringsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all i18n strings
+ */
+
+export function useListI18nStrings<
+  TData = Awaited<ReturnType<typeof listI18nStrings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listI18nStrings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListI18nStringsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Bulk update i18n strings
+ */
+export const getBulkUpdateI18nStringsUrl = () => {
+  return `/api/i18n/strings`;
+};
+
+export const bulkUpdateI18nStrings = async (
+  bulkUpdateI18nStringsRequest: BulkUpdateI18nStringsRequest,
+  options?: RequestInit,
+): Promise<BulkUpdateI18nStringsResponse> => {
+  return customFetch<BulkUpdateI18nStringsResponse>(
+    getBulkUpdateI18nStringsUrl(),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(bulkUpdateI18nStringsRequest),
+    },
+  );
+};
+
+export const getBulkUpdateI18nStringsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkUpdateI18nStrings>>,
+    TError,
+    { data: BodyType<BulkUpdateI18nStringsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof bulkUpdateI18nStrings>>,
+  TError,
+  { data: BodyType<BulkUpdateI18nStringsRequest> },
+  TContext
+> => {
+  const mutationKey = ["bulkUpdateI18nStrings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof bulkUpdateI18nStrings>>,
+    { data: BodyType<BulkUpdateI18nStringsRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return bulkUpdateI18nStrings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BulkUpdateI18nStringsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof bulkUpdateI18nStrings>>
+>;
+export type BulkUpdateI18nStringsMutationBody =
+  BodyType<BulkUpdateI18nStringsRequest>;
+export type BulkUpdateI18nStringsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Bulk update i18n strings
+ */
+export const useBulkUpdateI18nStrings = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkUpdateI18nStrings>>,
+    TError,
+    { data: BodyType<BulkUpdateI18nStringsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof bulkUpdateI18nStrings>>,
+  TError,
+  { data: BodyType<BulkUpdateI18nStringsRequest> },
+  TContext
+> => {
+  return useMutation(getBulkUpdateI18nStringsMutationOptions(options));
+};
+
+/**
+ * @summary Update a single i18n string by key
+ */
+export const getUpdateI18nStringUrl = (key: string) => {
+  return `/api/i18n/strings/${key}`;
+};
+
+export const updateI18nString = async (
+  key: string,
+  updateI18nStringRequest: UpdateI18nStringRequest,
+  options?: RequestInit,
+): Promise<I18nString> => {
+  return customFetch<I18nString>(getUpdateI18nStringUrl(key), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateI18nStringRequest),
+  });
+};
+
+export const getUpdateI18nStringMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateI18nString>>,
+    TError,
+    { key: string; data: BodyType<UpdateI18nStringRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateI18nString>>,
+  TError,
+  { key: string; data: BodyType<UpdateI18nStringRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateI18nString"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateI18nString>>,
+    { key: string; data: BodyType<UpdateI18nStringRequest> }
+  > = (props) => {
+    const { key, data } = props ?? {};
+
+    return updateI18nString(key, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateI18nStringMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateI18nString>>
+>;
+export type UpdateI18nStringMutationBody = BodyType<UpdateI18nStringRequest>;
+export type UpdateI18nStringMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update a single i18n string by key
+ */
+export const useUpdateI18nString = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateI18nString>>,
+    TError,
+    { key: string; data: BodyType<UpdateI18nStringRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateI18nString>>,
+  TError,
+  { key: string; data: BodyType<UpdateI18nStringRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateI18nStringMutationOptions(options));
 };

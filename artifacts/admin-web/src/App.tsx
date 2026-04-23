@@ -21,6 +21,7 @@ import Promotions from "@/pages/promotions";
 import SettingsBot from "@/pages/settings-bot";
 import SettingsPayments from "@/pages/settings-payments";
 import SettingsRetry from "@/pages/settings-retry";
+import SettingsI18n from "@/pages/settings-i18n";
 import BotLogs from "@/pages/bot-logs";
 import TransactionDetails from "@/pages/transaction-details";
 
@@ -71,6 +72,7 @@ function Router() {
       <ProtectedRoute path="/settings/bot" component={SettingsBot} />
       <ProtectedRoute path="/settings/payments" component={SettingsPayments} />
       <ProtectedRoute path="/settings/retry" component={SettingsRetry} />
+      <ProtectedRoute path="/settings/i18n" component={SettingsI18n} />
       <ProtectedRoute path="/bot-logs" component={BotLogs} />
 
       <Route component={NotFound} />
