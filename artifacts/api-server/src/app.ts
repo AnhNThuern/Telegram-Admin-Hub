@@ -1,9 +1,17 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
 import router from "./routes";
 import { logger } from "./lib/logger";
+
+declare global {
+  namespace Express {
+    interface Request {
+      rawBody?: Buffer;
+    }
+  }
+}
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -47,7 +55,11 @@ app.use(cors({
   origin: allowedOrigin,
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req: Request, _res, buf) => {
+    req.rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 app.use(

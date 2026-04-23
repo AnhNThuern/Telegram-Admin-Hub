@@ -1383,7 +1383,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
 
   const { getBinancePayConfig } = await import("./binance-pay");
   const binanceCfg = await getBinancePayConfig();
-  const binanceAvailable = !!(binanceCfg?.binanceIsActive && product.usdtPrice);
+  const binanceAvailable = !!(binanceCfg?.isActive && product.usdtPrice);
 
   const orderCreatedHeader = shopName
     ? (lang === "en"
@@ -1643,7 +1643,7 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
   const { createBinancePayOrder, getBinancePayConfig } = await import("./binance-pay");
   const binanceCfg = await getBinancePayConfig();
 
-  if (!binanceCfg?.binanceIsActive) {
+  if (!binanceCfg?.isActive) {
     const unavailableMsg = lang === "en"
       ? "⚠️ Binance Pay is currently unavailable. Please choose another payment method."
       : "⚠️ Binance Pay hiện không khả dụng. Vui lòng chọn phương thức khác.";
@@ -1664,9 +1664,15 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
   if (existingBinanceTxn?.binancePrepayId) {
     const usdtAmount = existingBinanceTxn.amount;
     const msg = lang === "en"
-      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nOpen Binance app and complete payment.\n\n⏰ Complete it before it expires.`
-      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nMở ứng dụng Binance để hoàn tất thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn.`;
-    await sendMessage(chatId, msg, { reply_markup: cancelKb });
+      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nOpen Binance app and complete payment.\n\n⏰ Complete it before it expires. Use "🔄 Refresh QR" if the QR has expired.`
+      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nMở ứng dụng Binance để hoàn tất thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn. Nhấn "🔄 Làm mới QR" nếu QR đã hết hạn.`;
+    const existingKb = {
+      inline_keyboard: [
+        [{ text: lang === "en" ? "🔄 Refresh QR" : "🔄 Làm mới QR", callback_data: `refresh_binance_qr_${orderId}` }],
+        [{ text: cancelBtnText, callback_data: `cancel_order_${orderId}` }],
+      ],
+    };
+    await sendMessage(chatId, msg, { reply_markup: existingKb });
     return;
   }
 
@@ -1718,16 +1724,26 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
     });
 
     const qrContent = prepayResult.qrcodeLink ?? null;
+    const deeplink = prepayResult.universalUrl ?? prepayResult.checkoutUrl ?? null;
 
     const msg = lang === "en"
       ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nScan the QR code in your Binance app to pay.\n\n⏰ Complete payment before it expires.`
       : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nQuét mã QR bằng ứng dụng Binance để thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn.`;
 
+    const paymentKeyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
+    if (deeplink) {
+      paymentKeyboard.push([{ text: lang === "en" ? "📱 Open Binance App" : "📱 Mở Binance App", url: deeplink }]);
+    }
+    paymentKeyboard.push([{ text: lang === "en" ? "🔄 Refresh QR" : "🔄 Làm mới QR", callback_data: `refresh_binance_qr_${orderId}` }]);
+    paymentKeyboard.push([{ text: cancelBtnText, callback_data: `cancel_order_${orderId}` }]);
+
+    const payKb = { inline_keyboard: paymentKeyboard };
+
     if (qrContent) {
-      const sent = await sendPhoto(chatId, qrContent, msg, cancelKb);
-      if (!sent) await sendMessage(chatId, msg, { reply_markup: cancelKb });
+      const sent = await sendPhoto(chatId, qrContent, msg, payKb);
+      if (!sent) await sendMessage(chatId, msg, { reply_markup: payKb });
     } else {
-      await sendMessage(chatId, msg, { reply_markup: cancelKb });
+      await sendMessage(chatId, msg, { reply_markup: payKb });
     }
 
     await logBotAction("binance_pay_initiated", String(chatId), customerId,
@@ -2796,6 +2812,19 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       } else if (data.startsWith("show_binance_pay_")) {
         const orderId = parseInt(data.replace("show_binance_pay_", ""), 10);
         await sendBinancePayForOrder(chatId, orderId, customer.id, lang);
+      } else if (data.startsWith("refresh_binance_qr_")) {
+        const orderId = parseInt(data.replace("refresh_binance_qr_", ""), 10);
+        if (!isNaN(orderId)) {
+          // Cancel the old pending Binance transaction so a fresh order is created
+          await db.update(transactionsTable).set({ status: "cancelled" }).where(
+            and(
+              eq(transactionsTable.orderId, orderId),
+              eq(transactionsTable.status, "pending"),
+              eq(transactionsTable.provider, "binance"),
+            )
+          );
+          await sendBinancePayForOrder(chatId, orderId, customer.id, lang);
+        }
       } else if (data.startsWith("topup_amount_")) {
         const amount = parseInt(data.replace("topup_amount_", ""), 10);
         if (isNaN(amount) || amount <= 0) {

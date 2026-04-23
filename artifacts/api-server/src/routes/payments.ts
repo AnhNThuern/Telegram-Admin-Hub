@@ -179,7 +179,9 @@ router.post("/payments/binance/webhook", async (req: Request, res: Response): Pr
   const BINANCE_SUCCESS = { returnCode: "SUCCESS", returnMessage: null };
 
   try {
-    const rawBody = JSON.stringify(req.body);
+    // Use actual raw bytes for signature verification — JSON.stringify would alter
+    // whitespace/key ordering and cause false signature mismatches.
+    const rawBody = req.rawBody?.toString("utf-8") ?? JSON.stringify(req.body);
 
     const { verifyBinanceWebhookSignature } = await import("../lib/binance-pay");
     const isValid = await verifyBinanceWebhookSignature(
