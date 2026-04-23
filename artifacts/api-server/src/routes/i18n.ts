@@ -70,20 +70,24 @@ router.patch("/i18n/strings", requireAuth, async (req, res): Promise<void> => {
   }
 
   const { updates } = parseResult.data;
-  const results = [];
-  for (const u of updates) {
-    const fields: Record<string, string> = {};
-    if (u.vi !== undefined) fields["vi"] = u.vi;
-    if (u.en !== undefined) fields["en"] = u.en;
-    if (Object.keys(fields).length === 0) continue;
 
-    const [updated] = await db
-      .update(i18nStringsTable)
-      .set(fields)
-      .where(eq(i18nStringsTable.key, u.key))
-      .returning();
-    if (updated) results.push(updated);
-  }
+  const results = await db.transaction(async (tx) => {
+    const updated: Array<typeof i18nStringsTable.$inferSelect> = [];
+    for (const u of updates) {
+      const fields: Record<string, string> = {};
+      if (u.vi !== undefined) fields["vi"] = u.vi;
+      if (u.en !== undefined) fields["en"] = u.en;
+      if (Object.keys(fields).length === 0) continue;
+
+      const [row] = await tx
+        .update(i18nStringsTable)
+        .set(fields)
+        .where(eq(i18nStringsTable.key, u.key))
+        .returning();
+      if (row) updated.push(row);
+    }
+    return updated;
+  });
 
   invalidateI18nCache();
   res.json({ updated: results.length, data: results });
