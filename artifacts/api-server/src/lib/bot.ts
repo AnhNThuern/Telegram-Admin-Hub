@@ -870,27 +870,15 @@ async function showOrderConfirmScreen(
   const stockCount = Number(stockRow?.c ?? 0);
 
   if (quantity < product.minQuantity || quantity > product.maxQuantity) {
-    await renderView(chatId, editMessageId, `❌ Số lượng không hợp lệ. Mua từ ${product.minQuantity} đến ${product.maxQuantity}.`, {
-      reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
-    });
+    await showProductDetail(chatId, productId, editMessageId);
     return;
   }
 
   if (stockCount < quantity) {
-    if (stockCount === 0) {
-      await renderView(chatId, editMessageId, `❌ <b>${product.name}</b> hiện đã hết hàng.\n\nBạn có thể yêu cầu shop nhập thêm hàng.`, {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
-            [{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
-          ],
-        },
-      });
-    } else {
-      await renderView(chatId, editMessageId, `❌ Không đủ hàng. Chỉ còn <b>${stockCount}</b> sản phẩm. Vui lòng chọn số lượng phù hợp.`, {
-        reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
-      });
-    }
+    // Redirect to the live product detail so the customer always sees the
+    // accurate, up-to-date stock status (Hết hàng / reduced count) rather
+    // than a stale counter from the previous render.
+    await showProductDetail(chatId, productId, editMessageId);
     return;
   }
 
@@ -1692,9 +1680,12 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, entry.productId));
           const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${entry.productId} AND ${productStocksTable.status} = 'available'`);
           const stockCount = Number(stockRow?.c ?? 0);
-          if (!product || stockCount < qty) {
+          if (!product) {
             clearAwaitingQuantity(chatId);
-            await sendMessage(chatId, "❌ Sản phẩm không còn đủ hàng. Vui lòng chọn lại.");
+            await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
+          } else if (stockCount < qty) {
+            clearAwaitingQuantity(chatId);
+            await showProductDetail(chatId, entry.productId);
           } else {
             const subtotal = parseFloat(product.price) * qty;
             const result = await validatePromoCode(text.trim(), subtotal);
