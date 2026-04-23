@@ -385,6 +385,34 @@ async function renderView(chatId: number | string, editMessageId: number | undef
   return sendMessage(chatId, text, options);
 }
 
+async function editMessageMedia(chatId: number | string, messageId: number, photoUrl: string, caption?: string, reply_markup?: object): Promise<boolean> {
+  const token = await getBotToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/editMessageMedia`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        media: { type: "photo", media: photoUrl, caption, parse_mode: "HTML" },
+        ...(reply_markup ? { reply_markup } : {}),
+      }),
+    });
+    const data = await res.json() as { ok: boolean; description?: string };
+    if (!data.ok) {
+      const desc = data.description ?? "";
+      if (/message is not modified/i.test(desc)) return true;
+      logger.warn({ chatId, messageId, error: desc }, "Telegram editMessageMedia returned ok=false");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logger.error({ err }, "Failed to editMessageMedia");
+    return false;
+  }
+}
+
 async function sendPhoto(chatId: number | string, photoUrl: string, caption?: string, reply_markup?: object): Promise<boolean> {
   const token = await getBotToken();
   if (!token) return false;
@@ -1623,7 +1651,7 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
   }
 }
 
-async function sendBinancePayForOrder(chatId: number | string, orderId: number, customerId: number, lang: Lang = "vi"): Promise<void> {
+async function sendBinancePayForOrder(chatId: number | string, orderId: number, customerId: number, lang: Lang = "vi", editMessageId?: number): Promise<void> {
   const [order] = await db.select().from(ordersTable).where(
     and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
   );
@@ -1694,9 +1722,10 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
   const goodsName = item?.productName ?? "Order";
   const goodsId = String(item?.productId ?? orderId);
 
-  // Build the merchantTradeNo used in the Binance API call — store exactly this value
-  // in paymentReference so webhook fallback matching works without prepayId
-  const merchantTradeNo = `${binanceCfg.merchantTradeNoPrefix}${order.orderCode}`;
+  // Each attempt (including QR refresh) gets a unique merchantTradeNo via timestamp
+  // suffix — Binance Pay rejects duplicate merchant order IDs.
+  // Stored in paymentReference so webhook fallback matching works without prepayId.
+  const merchantTradeNo = `${binanceCfg.merchantTradeNoPrefix}${order.orderCode}_${Date.now()}`;
 
   try {
     const prepayResult = await createBinancePayOrder({
@@ -1740,11 +1769,25 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
 
     const payKb = { inline_keyboard: paymentKeyboard };
 
-    if (qrContent) {
-      const sent = await sendPhoto(chatId, qrContent, msg, payKb);
-      if (!sent) await sendMessage(chatId, msg, { reply_markup: payKb });
+    if (editMessageId !== undefined) {
+      // Refresh path: update the existing message in place
+      if (qrContent) {
+        const edited = await editMessageMedia(chatId, editMessageId, qrContent, msg, payKb);
+        if (!edited) {
+          await sendPhoto(chatId, qrContent, msg, payKb);
+        }
+      } else {
+        const edited = await editMessage(chatId, editMessageId, msg, { reply_markup: payKb });
+        if (!edited) await sendMessage(chatId, msg, { reply_markup: payKb });
+      }
     } else {
-      await sendMessage(chatId, msg, { reply_markup: payKb });
+      // First-time path: send a new message
+      if (qrContent) {
+        const sent = await sendPhoto(chatId, qrContent, msg, payKb);
+        if (!sent) await sendMessage(chatId, msg, { reply_markup: payKb });
+      } else {
+        await sendMessage(chatId, msg, { reply_markup: payKb });
+      }
     }
 
     await logBotAction("binance_pay_initiated", String(chatId), customerId,
@@ -2824,7 +2867,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               eq(transactionsTable.provider, "binance"),
             )
           );
-          await sendBinancePayForOrder(chatId, orderId, customer.id, lang);
+          // Pass messageId so the existing QR message is edited in place
+          await sendBinancePayForOrder(chatId, orderId, customer.id, lang, messageId);
         }
       } else if (data.startsWith("topup_amount_")) {
         const amount = parseInt(data.replace("topup_amount_", ""), 10);
