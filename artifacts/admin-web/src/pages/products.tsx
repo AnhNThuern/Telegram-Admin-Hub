@@ -45,6 +45,9 @@ export default function Products() {
   });
 
   const { data: categoryList } = useListCategories();
+  const categoryMap = new Map(
+    (categoryList?.data ?? []).map((c) => [c.id, { name: c.name, icon: c.icon ?? null }])
+  );
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -304,6 +307,7 @@ export default function Products() {
                 <TableRow>
                   <TableHead>ID</TableHead>
                   <TableHead>Tên sản phẩm</TableHead>
+                  <TableHead>Danh mục</TableHead>
                   <TableHead>Giá bán</TableHead>
                   <TableHead>Tồn kho</TableHead>
                   <TableHead>Trạng thái</TableHead>
@@ -315,6 +319,16 @@ export default function Products() {
                   <TableRow key={product.id} data-testid={`row-product-${product.id}`}>
                     <TableCell className="font-mono text-xs">{product.id}</TableCell>
                     <TableCell className="font-medium">{product.name}</TableCell>
+                    <TableCell data-testid={`category-product-${product.id}`}>
+                      {product.categoryId != null ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span>{categoryMap.get(product.categoryId)?.icon ?? "📁"}</span>
+                          <span className="text-sm">{categoryMap.get(product.categoryId)?.name ?? ""}</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>{formatVND(product.price)}</TableCell>
                     <TableCell>
                       <span className={`font-mono font-bold ${product.stockCount < 10 ? "text-destructive" : "text-emerald-500"}`}>
@@ -345,7 +359,7 @@ export default function Products() {
                 ))}
                 {productList?.data?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       Không tìm thấy sản phẩm nào.
                     </TableCell>
                   </TableRow>
