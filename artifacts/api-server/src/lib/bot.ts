@@ -1,5 +1,5 @@
 import { db, botLogsTable, customersTable, ordersTable, orderItemsTable, productStocksTable, transactionsTable, productsTable, promotionsTable, botPendingActionsTable } from "@workspace/db";
-import { eq, and, desc, inArray, sql as sqlOp, lt } from "drizzle-orm";
+import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count } from "drizzle-orm";
 import { logger } from "./logger";
 
 // Persistent conversation state for customers awaiting promo code entry.
@@ -1683,37 +1683,72 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] },
           });
         } else {
-          await logBotAction("stock_request", String(chatId), customer.id,
-            `Stock request for product ${productId} (${product.name})`,
-            { productId, productName: product.name, customerName: from.first_name, customerUsername: from.username }
-          );
+          // Deduplication: only allow one stock request per (customerId, productId)
+          // within a 24-hour rolling window to prevent admin notification spam.
+          const STOCK_REQUEST_WINDOW_MS = 24 * 60 * 60 * 1000;
+          const since = new Date(Date.now() - STOCK_REQUEST_WINDOW_MS);
+          const [dupRow] = await db
+            .select({ c: count() })
+            .from(botLogsTable)
+            .where(and(
+              eq(botLogsTable.action, "stock_request"),
+              eq(botLogsTable.customerId, customer.id),
+              gte(botLogsTable.createdAt, since),
+              sqlOp`${botLogsTable.metadata}->>'productId' = ${String(productId)}`,
+            ));
+          const alreadyRequested = Number(dupRow?.c ?? 0) > 0;
 
-          const customerLabel = from.username
-            ? `@${from.username} (${from.first_name})`
-            : `${from.first_name} [chat ${chatId}]`;
-          await sendAdminNotification(
-            `🔔 <b>Yêu cầu hàng mới</b>\n\n` +
-            `Khách hàng <b>${customerLabel}</b> muốn mua:\n` +
-            `${product.productIcon ?? "📦"} <b>${product.name}</b>\n\n` +
-            `Vui lòng nhập thêm hàng để đáp ứng nhu cầu.`,
-            { productId, customerId: customer.id, chatId: String(chatId) }
-          );
+          if (alreadyRequested) {
+            // Customer already requested this product within the rate-limit window;
+            // show a friendly reminder without sending another admin notification.
+            await renderView(
+              chatId,
+              messageId,
+              `🔔 <b>Yêu cầu đã được ghi nhận trước đó</b>\n\n` +
+              `Bạn đã gửi yêu cầu cho sản phẩm ${product.productIcon ?? "📦"} <b>${product.name}</b> rồi.\n\n` +
+              `Chúng tôi sẽ thông báo ngay khi có hàng. Hãy quay lại kiểm tra sau nhé! 🙏`,
+              {
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: "🔄 Kiểm tra lại", callback_data: `prod_${productId}` }],
+                    [{ text: "🛒 Xem sản phẩm khác", callback_data: "browse_products" }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+                  ],
+                },
+              }
+            );
+          } else {
+            await logBotAction("stock_request", String(chatId), customer.id,
+              `Stock request for product ${productId} (${product.name})`,
+              { productId, productName: product.name, customerName: from.first_name, customerUsername: from.username }
+            );
 
-          await renderView(
-            chatId,
-            messageId,
-            `✅ <b>Đã ghi nhận yêu cầu của bạn!</b>\n\n` +
-            `${product.productIcon ?? "📦"} <b>${product.name}</b> hiện đang hết hàng.\n\n` +
-            `Chúng tôi đã nhận được yêu cầu và sẽ bổ sung sớm nhất có thể. Hãy quay lại kiểm tra sau nhé! 🙏`,
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: "🔄 Kiểm tra lại", callback_data: `prod_${productId}` }],
-                  [{ text: "🛒 Xem sản phẩm khác", callback_data: "browse_products" }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
-                ],
-              },
-            }
-          );
+            const customerLabel = from.username
+              ? `@${from.username} (${from.first_name})`
+              : `${from.first_name} [chat ${chatId}]`;
+            await sendAdminNotification(
+              `🔔 <b>Yêu cầu hàng mới</b>\n\n` +
+              `Khách hàng <b>${customerLabel}</b> muốn mua:\n` +
+              `${product.productIcon ?? "📦"} <b>${product.name}</b>\n\n` +
+              `Vui lòng nhập thêm hàng để đáp ứng nhu cầu.`,
+              { productId, customerId: customer.id, chatId: String(chatId) }
+            );
+
+            await renderView(
+              chatId,
+              messageId,
+              `✅ <b>Đã ghi nhận yêu cầu của bạn!</b>\n\n` +
+              `${product.productIcon ?? "📦"} <b>${product.name}</b> hiện đang hết hàng.\n\n` +
+              `Chúng tôi đã nhận được yêu cầu và sẽ bổ sung sớm nhất có thể. Hãy quay lại kiểm tra sau nhé! 🙏`,
+              {
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: "🔄 Kiểm tra lại", callback_data: `prod_${productId}` }],
+                    [{ text: "🛒 Xem sản phẩm khác", callback_data: "browse_products" }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+                  ],
+                },
+              }
+            );
+          }
         }
       } else if (data.startsWith("qty_input_")) {
         const productId = parseInt(data.replace("qty_input_", ""), 10);
