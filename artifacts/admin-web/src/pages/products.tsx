@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Link } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 
 const productSchema = z.object({
   name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
@@ -89,8 +89,26 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<string>("all");
   const [isActiveFilter, setIsActiveFilter] = useState<string>("all");
-  const [orderBy, setOrderBy] = useState<"createdAt" | "stockRequestCount">("createdAt");
   const [stockRequestProduct, setStockRequestProduct] = useState<{ id: number; name: string } | null>(null);
+
+  const searchString = useSearch();
+  const [location, setLocation] = useLocation();
+  const searchParams = new URLSearchParams(searchString);
+  const rawOrderBy = searchParams.get("orderBy");
+  const orderBy: "createdAt" | "stockRequestCount" =
+    rawOrderBy === "stockRequestCount" ? "stockRequestCount" : "createdAt";
+
+  const setOrderBy = (value: "createdAt" | "stockRequestCount") => {
+    const params = new URLSearchParams(searchString);
+    if (value === "createdAt") {
+      params.delete("orderBy");
+    } else {
+      params.set("orderBy", value);
+    }
+    const qs = params.toString();
+    setLocation(qs ? `${location}?${qs}` : location, { replace: true });
+    setPage(1);
+  };
   
   const { data: productList, isLoading } = useListProducts({
     page,
@@ -371,7 +389,7 @@ export default function Products() {
             <SelectItem value="false">Đã ẩn</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={orderBy} onValueChange={(v) => { setOrderBy(v as "createdAt" | "stockRequestCount"); setPage(1); }}>
+        <Select value={orderBy} onValueChange={(v) => setOrderBy(v as "createdAt" | "stockRequestCount")}>
           <SelectTrigger className="w-[200px]" data-testid="select-product-order">
             <SelectValue placeholder="Sắp xếp" />
           </SelectTrigger>
