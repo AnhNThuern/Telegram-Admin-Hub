@@ -656,9 +656,20 @@ async function promptForPromoCode(chatId: number | string, customerId: number, p
     return;
   }
   if (stockCount < quantity) {
-    await renderView(chatId, editMessageId, `❌ Không đủ hàng. Chỉ còn ${stockCount} sản phẩm.`, {
-      reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
-    });
+    if (stockCount === 0) {
+      await renderView(chatId, editMessageId, `❌ <b>${product.name}</b> hiện đã hết hàng.\n\nBạn có thể yêu cầu shop nhập thêm hàng.`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
+            [{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+          ],
+        },
+      });
+    } else {
+      await renderView(chatId, editMessageId, `❌ Không đủ hàng. Chỉ còn <b>${stockCount}</b> sản phẩm. Vui lòng chọn số lượng phù hợp.`, {
+        reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
+      });
+    }
     return;
   }
 
@@ -716,7 +727,20 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   }
 
   if (stockCount < quantity) {
-    await sendMessage(chatId, `❌ Không đủ hàng. Chỉ còn ${stockCount} sản phẩm.`);
+    if (stockCount === 0) {
+      await sendMessage(chatId, `❌ <b>${product.name}</b> hiện đã hết hàng. Vui lòng quay lại sau.`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
+            [{ text: "🏠 Trang chủ", callback_data: "main_menu" }],
+          ],
+        },
+      });
+    } else {
+      await sendMessage(chatId, `❌ Không đủ hàng. Chỉ còn <b>${stockCount}</b> sản phẩm.`, {
+        reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
+      });
+    }
     return;
   }
 
@@ -924,21 +948,50 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
   const [item] = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
   if (!item) return false;
 
-  // Get available stock lines (safe atomic update)
-  const availableStocks = await db.select().from(productStocksTable)
-    .where(and(eq(productStocksTable.productId, item.productId), eq(productStocksTable.status, "available")))
-    .limit(item.quantity);
+  // Atomically claim exactly the required stock rows inside a transaction.
+  // FOR UPDATE SKIP LOCKED ensures two concurrent deliveries for the same product
+  // never claim the same row — if another transaction already holds a lock on a
+  // row, we skip it rather than block. If we cannot lock enough unlocked rows
+  // (genuinely out of stock, or all remaining rows are mid-delivery), we throw a
+  // sentinel and handle the insufficiency outside the transaction, leaving the DB
+  // in a clean state and preventing any double-delivery of the same content.
+  const INSUFFICIENT_STOCK_SENTINEL = "INSUFFICIENT_STOCK_AT_DELIVERY";
+  let deliveryStocks: Array<{ id: number; content: string }> = [];
+  let stockAvailableAtFailure = 0;
 
-  if (availableStocks.length < item.quantity) {
+  try {
+    await db.transaction(async (tx) => {
+      const result = await tx.execute(
+        sqlOp`SELECT id, content FROM product_stocks WHERE product_id = ${item.productId} AND status = 'available' ORDER BY created_at LIMIT ${item.quantity} FOR UPDATE SKIP LOCKED`
+      );
+      const rows = result.rows as Array<{ id: number; content: string }>;
+
+      if (rows.length < item.quantity) {
+        stockAvailableAtFailure = rows.length;
+        throw new Error(INSUFFICIENT_STOCK_SENTINEL);
+      }
+
+      deliveryStocks = rows;
+
+      // Update within the same transaction while the locks are held
+      await tx.update(productStocksTable)
+        .set({ status: "delivered", orderId })
+        .where(and(
+          inArray(productStocksTable.id, rows.map(r => r.id)),
+          eq(productStocksTable.status, "available")
+        ));
+    });
+  } catch (err) {
+    if ((err as Error).message !== INSUFFICIENT_STOCK_SENTINEL) throw err;
+
     await logBotAction("delivery_failed", customer.chatId, customer.id,
       `Insufficient stock for order ${order.orderCode}`,
-      { orderId, available: availableStocks.length, required: item.quantity },
+      { orderId, available: stockAvailableAtFailure, required: item.quantity },
       "error"
     );
     await db.update(ordersTable).set({ status: "needs_manual_action" }).where(eq(ordersTable.id, orderId));
     await sendMessage(parseInt(customer.chatId), `⚠️ Đơn hàng <b>${order.orderCode}</b> cần xử lý thủ công. Admin sẽ liên hệ bạn sớm.`);
 
-    // Alert admin about the out-of-stock situation
     const customerName = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || customer.username || `ID:${customer.id}`;
     const adminBaseUrl = process.env.ADMIN_BASE_URL
       || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}` : "")
@@ -950,19 +1003,12 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
       `👤 Khách hàng: ${customerName}${customer.username ? ` (@${customer.username})` : ""}\n` +
       `🛍️ Sản phẩm: ${item.productName} x${item.quantity}\n` +
       `💰 Số tiền: ${parseFloat(order.totalAmount).toLocaleString("vi-VN")}đ\n` +
-      `📊 Tồn kho còn: ${availableStocks.length} / cần ${item.quantity}\n\n` +
+      `📊 Tồn kho còn: ${stockAvailableAtFailure} / cần ${item.quantity}\n\n` +
       `Cần nhập thêm hàng và xử lý thủ công đơn này.` +
       orderLink;
-    await sendAdminAlert(adminMsg, { orderId, productId: item.productId, productName: item.productName, available: availableStocks.length, required: item.quantity });
+    await sendAdminAlert(adminMsg, { orderId, productId: item.productId, productName: item.productName, available: stockAvailableAtFailure, required: item.quantity });
 
     return false;
-  }
-
-  // Mark stocks as delivered
-  for (const stock of availableStocks) {
-    await db.update(productStocksTable).set({ status: "delivered", orderId }).where(
-      and(eq(productStocksTable.id, stock.id), eq(productStocksTable.status, "available"))
-    );
   }
 
   // Send stock content to customer
@@ -989,7 +1035,7 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
   }
 
   deliveryMsg += `\n<b>Thông tin sản phẩm:</b>\n`;
-  availableStocks.forEach((s, i) => {
+  deliveryStocks.forEach((s, i) => {
     deliveryMsg += `${i + 1}. <code>${s.content}</code>\n`;
   });
   if (isRetry) {
@@ -1409,8 +1455,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
           const stockCount = Number(stockRow?.c ?? 0);
           if (stockCount < product.minQuantity) {
-            await renderView(chatId, messageId, "❌ Sản phẩm đã hết hàng.", {
-              reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
+            await renderView(chatId, messageId, `❌ <b>${product.name}</b> hiện đã hết hàng.\n\nBạn có thể yêu cầu shop nhập thêm hàng.`, {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
+                  [{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+                ],
+              },
             });
           } else {
             await clearAwaitingPromo(chatId);
