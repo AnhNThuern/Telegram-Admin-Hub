@@ -1231,11 +1231,14 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   }
   const orderCode = `DH${suffix}`;
 
-  // Atomically create the order AND reserve stock rows in one transaction.
-  // If concurrent buyers have depleted stock since our pre-check, the reservation
-  // will find fewer rows (SKIP LOCKED means held rows are simply not returned),
-  // and we abort the entire transaction — no order is created, no stock double-claimed.
+  // Atomically create the order, reserve stock, and (if applicable) consume one
+  // promo usage — all in a single transaction so no partial state is ever written.
+  //
+  // STOCK_DEPLETED_AT_CREATION: concurrent buyer grabbed the last items via SKIP LOCKED.
+  // PROMO_LIMIT_EXCEEDED:       concurrent buyer consumed the last promo slot between our
+  //                             validatePromoCode check and the atomic increment guard.
   const STOCK_DEPLETED_AT_CREATION = "STOCK_DEPLETED_AT_ORDER_CREATION";
+  const PROMO_LIMIT_EXCEEDED = "PROMO_LIMIT_EXCEEDED_AT_ORDER_CREATION";
   let order: typeof ordersTable.$inferSelect;
 
   try {
@@ -1276,6 +1279,22 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       const reservedRows = reserved.rows as Array<{ id: number }>;
       if (reservedRows.length < quantity) throw new Error(STOCK_DEPLETED_AT_CREATION);
 
+      // Atomically consume one promo usage inside the same transaction.
+      // The WHERE guard (use_count < usage_limit) prevents exceeding the limit even
+      // when multiple orders race to apply the same code at its last allowed use.
+      if (promotion) {
+        const promoUpdate = await tx.execute(
+          sqlOp`UPDATE promotions
+                SET use_count = use_count + 1
+                WHERE id = ${promotion.id}
+                  AND (usage_limit IS NULL OR use_count < usage_limit)
+                RETURNING id`
+        );
+        if ((promoUpdate.rows as Array<{ id: number }>).length === 0) {
+          throw new Error(PROMO_LIMIT_EXCEEDED);
+        }
+      }
+
       return newOrder;
     });
   } catch (err) {
@@ -1291,14 +1310,14 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       });
       return;
     }
+    if ((err as Error).message === PROMO_LIMIT_EXCEEDED) {
+      // Another concurrent order used the last allowed slot for this promo code.
+      await sendMessage(chatId, "❌ Mã giảm giá vừa hết lượt sử dụng. Vui lòng thử mã khác hoặc đặt hàng không dùng mã.", {
+        reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
+      });
+      return;
+    }
     throw err;
-  }
-
-  // Transaction committed — do non-critical best-effort updates outside the transaction
-  if (promotion) {
-    await db.update(promotionsTable)
-      .set({ useCount: sqlOp`use_count + 1` })
-      .where(eq(promotionsTable.id, promotion.id));
   }
   await db.update(customersTable)
     .set({ totalOrders: sqlOp`total_orders + 1` })
@@ -1691,6 +1710,13 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
       await tx.update(productStocksTable)
         .set({ status: "delivered", orderId })
         .where(inArray(productStocksTable.id, rows.map(r => r.id)));
+
+      // Update order status inside the same transaction so the DB is always
+      // consistent: if the server crashes after this commit the order is already
+      // 'delivered' and the retry sweep won't attempt a second delivery.
+      await tx.update(ordersTable)
+        .set({ status: "delivered", deliveredAt: new Date() })
+        .where(eq(ordersTable.id, orderId));
     });
   } catch (err) {
     if ((err as Error).message !== INSUFFICIENT_STOCK_SENTINEL) throw err;
@@ -1757,10 +1783,8 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
 
   await sendMessage(parseInt(customer.chatId), deliveryMsg);
 
-  // Update order status
-  await db.update(ordersTable).set({ status: "delivered", deliveredAt: new Date() }).where(eq(ordersTable.id, orderId));
-
   // Update customer total spent
+  // (Order status was already set to 'delivered' inside the stock-claim transaction above)
   const { sql } = await import("drizzle-orm");
   await db.update(customersTable).set({ totalSpent: sql`total_spent + ${parseFloat(order.totalAmount)}` }).where(eq(customersTable.id, customer.id));
 
