@@ -2,12 +2,8 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
-import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
-
-const PgStore = connectPgSimple(session);
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -56,11 +52,6 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(
   session({
-    store: new PgStore({
-      pool,
-      tableName: "admin_sessions",
-      createTableIfMissing: true,
-    }),
     secret: sessionSecret ?? "telegram-shop-dev-secret-not-for-production",
     resave: false,
     saveUninitialized: false,

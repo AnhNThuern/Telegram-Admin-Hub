@@ -17,27 +17,23 @@ router.get("/dashboard/stats", requireAuth, async (_req, res): Promise<void> => 
     .toFixed(2);
 
   const recentOrderRows = await db
-    .select({
-      id: ordersTable.id,
-      orderCode: ordersTable.orderCode,
-      totalAmount: ordersTable.totalAmount,
-      status: ordersTable.status,
-      createdAt: ordersTable.createdAt,
-      customerFirstName: customersTable.firstName,
-      customerUsername: customersTable.username,
-    })
+    .select()
     .from(ordersTable)
-    .leftJoin(customersTable, eq(ordersTable.customerId, customersTable.id))
     .orderBy(desc(ordersTable.createdAt))
     .limit(5);
 
-  const recentOrders = recentOrderRows.map(o => ({
-    id: o.id,
-    orderCode: o.orderCode,
-    totalAmount: o.totalAmount,
-    status: o.status,
-    customerName: o.customerFirstName ?? o.customerUsername ?? null,
-    createdAt: o.createdAt,
+  const recentOrders = await Promise.all(recentOrderRows.map(async (o) => {
+    const [customer] = o.customerId
+      ? await db.select({ firstName: customersTable.firstName, username: customersTable.username }).from(customersTable).where(eq(customersTable.id, o.customerId))
+      : [null];
+    return {
+      id: o.id,
+      orderCode: o.orderCode,
+      totalAmount: o.totalAmount,
+      status: o.status,
+      customerName: customer?.firstName ?? customer?.username ?? null,
+      createdAt: o.createdAt,
+    };
   }));
 
   const newCustomers = await db

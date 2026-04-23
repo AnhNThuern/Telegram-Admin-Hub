@@ -259,21 +259,10 @@ export default function SettingsPayments() {
                 name="webhookSecret"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Webhook Secret (Tùy chọn)</FormLabel>
-                    {config?.webhookSecret && (
-                      <div className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 font-medium" data-testid="badge-webhook-secret-set">
-                        <ShieldCheck className="h-4 w-4 shrink-0" />
-                        <span>Webhook secret đã được lưu ({config.webhookSecret})</span>
-                      </div>
-                    )}
+                    <FormLabel>Webhook Secret (Tùy chọn) {config?.webhookSecret && <span className="text-xs text-muted-foreground font-normal ml-1">(để trống = giữ nguyên)</span>}</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder={config?.webhookSecret ? "Nhập secret mới để thay thế" : "Bảo mật webhook"} {...field} />
+                      <Input type="password" placeholder={config?.webhookSecret ? "Để trống để giữ nguyên secret hiện tại" : "Bảo mật webhook"} {...field} />
                     </FormControl>
-                    <FormDescription data-testid="hint-webhook-secret">
-                      {config?.webhookSecret
-                        ? "Để trống để giữ nguyên webhook secret hiện tại. Nhập giá trị mới để thay thế."
-                        : "Nhập webhook secret từ trang quản trị sepay.vn (nếu có)."}
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
