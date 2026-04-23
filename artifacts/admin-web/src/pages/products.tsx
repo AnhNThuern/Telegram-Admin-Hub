@@ -26,6 +26,7 @@ const productSchema = z.object({
   minQuantity: z.coerce.number().default(1),
   maxQuantity: z.coerce.number().default(999),
   productType: z.string().default("digital"),
+  productIcon: z.string().optional(),
 });
 
 type ProductFormValues = z.infer<typeof productSchema>;
@@ -122,13 +123,19 @@ export default function Products() {
       minQuantity: 1,
       maxQuantity: 999,
       productType: "digital",
+      productIcon: "",
     },
   });
 
   const onSubmit = (data: ProductFormValues) => {
+    const trimmedIcon = data.productIcon?.trim();
+    const normalizedData = {
+      ...data,
+      productIcon: editingId != null ? trimmedIcon : (trimmedIcon || undefined),
+    };
     if (editingId) {
       updateProduct.mutate(
-        { id: editingId, data },
+        { id: editingId, data: normalizedData },
         {
           onSuccess: () => {
             toast({ title: "Đã cập nhật sản phẩm" });
@@ -140,7 +147,7 @@ export default function Products() {
       );
     } else {
       createProduct.mutate(
-        { data },
+        { data: normalizedData },
         {
           onSuccess: () => {
             toast({ title: "Đã tạo sản phẩm" });
@@ -164,6 +171,7 @@ export default function Products() {
       minQuantity: product.minQuantity,
       maxQuantity: product.maxQuantity,
       productType: product.productType,
+      productIcon: product.productIcon || "",
     });
     setIsAddOpen(true);
   };
@@ -210,6 +218,20 @@ export default function Products() {
                         <FormControl>
                           <Input placeholder="VD: Netflix 1 tháng" {...field} data-testid="input-product-name" />
                         </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="productIcon"
+                    render={({ field }) => (
+                      <FormItem className="col-span-2">
+                        <FormLabel>Icon sản phẩm (emoji)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="VD: 📦" {...field} data-testid="input-product-icon" />
+                        </FormControl>
+                        <FormDescription className="text-xs">Nhập một emoji đại diện cho sản phẩm. Mặc định: 📦</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -360,6 +382,7 @@ export default function Products() {
               <TableHeader>
                 <TableRow>
                   <TableHead>ID</TableHead>
+                  <TableHead>Icon</TableHead>
                   <TableHead>Tên sản phẩm</TableHead>
                   <TableHead>Danh mục</TableHead>
                   <TableHead>Giá bán</TableHead>
@@ -373,6 +396,7 @@ export default function Products() {
                 {productList?.data?.map((product) => (
                   <TableRow key={product.id} data-testid={`row-product-${product.id}`}>
                     <TableCell className="font-mono text-xs">{product.id}</TableCell>
+                    <TableCell className="text-xl" data-testid={`icon-product-${product.id}`}>{product.productIcon || "📦"}</TableCell>
                     <TableCell className="font-medium">{product.name}</TableCell>
                     <TableCell data-testid={`category-product-${product.id}`}>
                       {product.categoryId != null ? (
@@ -428,7 +452,7 @@ export default function Products() {
                 ))}
                 {productList?.data?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                       Không tìm thấy sản phẩm nào.
                     </TableCell>
                   </TableRow>
