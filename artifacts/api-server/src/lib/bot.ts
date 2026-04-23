@@ -1967,6 +1967,11 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         } else if (action === "settings") {
           await showSettingsMenu(chatId, undefined, lang);
         }
+      } else if (text === "/language" || text === "/lang") {
+        await clearAwaitingPromo(chatId);
+        clearAwaitingQuantity(chatId);
+        await logBotAction("language_command", String(chatId), customer.id, text);
+        await showLanguageSelection(chatId);
       } else if (text.startsWith("/naptien")) {
         await clearAwaitingPromo(chatId);
         clearAwaitingQuantity(chatId);
