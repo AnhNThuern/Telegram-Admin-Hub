@@ -761,36 +761,80 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   }
   const orderCode = `DH${suffix}`;
 
-  const [order] = await db.insert(ordersTable).values({
-    orderCode,
-    customerId,
-    totalAmount,
-    promotionId: promotion ? promotion.id : null,
-    discountAmount,
-    status: "pending",
-  }).returning();
+  // Atomically create the order AND reserve stock rows in one transaction.
+  // If concurrent buyers have depleted stock since our pre-check, the reservation
+  // will find fewer rows (SKIP LOCKED means held rows are simply not returned),
+  // and we abort the entire transaction — no order is created, no stock double-claimed.
+  const STOCK_DEPLETED_AT_CREATION = "STOCK_DEPLETED_AT_ORDER_CREATION";
+  let order: typeof ordersTable.$inferSelect;
 
-  await db.insert(orderItemsTable).values({
-    orderId: order.id,
-    productId: product.id,
-    productName: product.name,
-    quantity,
-    unitPrice: product.price,
-    totalPrice: subtotal.toFixed(2),
-  });
+  try {
+    order = await db.transaction(async (tx) => {
+      const [newOrder] = await tx.insert(ordersTable).values({
+        orderCode,
+        customerId,
+        totalAmount,
+        promotionId: promotion ? promotion.id : null,
+        discountAmount,
+        status: "pending",
+      }).returning();
 
-  // Increment promotion use_count atomically (only when a code was applied).
+      await tx.insert(orderItemsTable).values({
+        orderId: newOrder.id,
+        productId: product.id,
+        productName: product.name,
+        quantity,
+        unitPrice: product.price,
+        totalPrice: subtotal.toFixed(2),
+      });
+
+      // Lock exactly 'quantity' available stock rows and mark them 'reserved'
+      // for this order. Any row locked by another concurrent transaction is
+      // skipped (SKIP LOCKED), so if we can't reserve enough, stock is gone.
+      const reserved = await tx.execute(
+        sqlOp`UPDATE product_stocks
+              SET status = 'reserved', order_id = ${newOrder.id}
+              WHERE id IN (
+                SELECT id FROM product_stocks
+                WHERE product_id = ${productId} AND status = 'available'
+                ORDER BY created_at
+                LIMIT ${quantity}
+                FOR UPDATE SKIP LOCKED
+              )
+              RETURNING id`
+      );
+      const reservedRows = reserved.rows as Array<{ id: number }>;
+      if (reservedRows.length < quantity) throw new Error(STOCK_DEPLETED_AT_CREATION);
+
+      return newOrder;
+    });
+  } catch (err) {
+    if ((err as Error).message === STOCK_DEPLETED_AT_CREATION) {
+      // Stock was depleted between our pre-check and the reservation attempt.
+      await sendMessage(chatId, `❌ <b>${product.name}</b> đã hết hàng vào lúc xác nhận đơn. Vui lòng thử lại.`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
+            [{ text: "🏠 Trang chủ", callback_data: "main_menu" }],
+          ],
+        },
+      });
+      return;
+    }
+    throw err;
+  }
+
+  // Transaction committed — do non-critical best-effort updates outside the transaction
   if (promotion) {
     await db.update(promotionsTable)
       .set({ useCount: sqlOp`use_count + 1` })
       .where(eq(promotionsTable.id, promotion.id));
   }
+  await db.update(customersTable)
+    .set({ totalOrders: sqlOp`total_orders + 1` })
+    .where(eq(customersTable.id, customerId));
 
-  // Update customer total orders
-  const { sql: sqlFn } = await import("drizzle-orm");
-  await db.update(customersTable).set({ totalOrders: sqlFn`total_orders + 1` }).where(eq(customersTable.id, customerId));
-
-  await logBotAction("create_order", String(chatId), customerId, `Order ${orderCode} created`, { orderId: order.id, productId, quantity, promotionId: promotion?.id, discountAmount });
+  await logBotAction("create_order", String(chatId), customerId, `Order ${orderCode} created (stock reserved)`, { orderId: order.id, productId, quantity, promotionId: promotion?.id, discountAmount });
 
   const amountFormatted = parseFloat(totalAmount).toLocaleString("vi-VN");
   const subtotalFormatted = subtotal.toLocaleString("vi-VN");
@@ -956,11 +1000,17 @@ async function payWithBalanceAndDeliver(
 
   try {
     await db.transaction(async (tx) => {
-      // Step 1: Lock and claim stock rows atomically. SKIP LOCKED means we won't
-      // wait on rows held by another concurrent transaction — if we can't get enough
-      // unlocked rows, stock is effectively unavailable for this buyer right now.
+      // Step 1: Lock and claim stock rows atomically. Prefer rows already reserved
+      // for this order at creation time; fall back to any available row (for legacy
+      // orders that predate the reservation model). SKIP LOCKED ensures we never
+      // double-claim a row held by a concurrent transaction.
       const result = await tx.execute(
-        sqlOp`SELECT id, content FROM product_stocks WHERE product_id = ${item.productId} AND status = 'available' ORDER BY created_at LIMIT ${item.quantity} FOR UPDATE SKIP LOCKED`
+        sqlOp`SELECT id, content FROM product_stocks
+              WHERE product_id = ${item.productId}
+                AND (status = 'available' OR (status = 'reserved' AND order_id = ${orderId}))
+              ORDER BY (CASE WHEN status = 'reserved' AND order_id = ${orderId} THEN 0 ELSE 1 END), created_at
+              LIMIT ${item.quantity}
+              FOR UPDATE SKIP LOCKED`
       );
       const rows = result.rows as Array<{ id: number; content: string }>;
       if (rows.length < item.quantity) throw new Error(OUT_OF_STOCK);
@@ -983,13 +1033,12 @@ async function payWithBalanceAndDeliver(
         .returning({ id: customersTable.id });
       if (deducted.length === 0) throw new Error(INSUFFICIENT);
 
-      // Step 4: Mark the claimed stock rows as delivered (still in the same transaction)
+      // Step 4: Mark the claimed stock rows as delivered (still in the same transaction).
+      // Rows may be 'reserved' (for this order) or 'available' (legacy); update unconditionally
+      // since we hold row-level locks from Step 1.
       await tx.update(productStocksTable)
         .set({ status: "delivered", orderId })
-        .where(and(
-          inArray(productStocksTable.id, rows.map(r => r.id)),
-          eq(productStocksTable.status, "available")
-        ));
+        .where(inArray(productStocksTable.id, rows.map(r => r.id)));
 
       // Step 5: Record the wallet transaction
       await tx.insert(transactionsTable).values({
@@ -1058,8 +1107,15 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
 
   try {
     await db.transaction(async (tx) => {
+      // Prefer reserved rows already allocated to this order at creation time;
+      // fall back to any available row for retries / legacy orders without reservation.
       const result = await tx.execute(
-        sqlOp`SELECT id, content FROM product_stocks WHERE product_id = ${item.productId} AND status = 'available' ORDER BY created_at LIMIT ${item.quantity} FOR UPDATE SKIP LOCKED`
+        sqlOp`SELECT id, content FROM product_stocks
+              WHERE product_id = ${item.productId}
+                AND (status = 'available' OR (status = 'reserved' AND order_id = ${orderId}))
+              ORDER BY (CASE WHEN status = 'reserved' AND order_id = ${orderId} THEN 0 ELSE 1 END), created_at
+              LIMIT ${item.quantity}
+              FOR UPDATE SKIP LOCKED`
       );
       const rows = result.rows as Array<{ id: number; content: string }>;
 
@@ -1070,13 +1126,11 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
 
       deliveryStocks = rows;
 
-      // Update within the same transaction while the locks are held
+      // Update within the same transaction while the locks are held.
+      // The rows may be 'reserved' (for this order) or 'available' (legacy / retries).
       await tx.update(productStocksTable)
         .set({ status: "delivered", orderId })
-        .where(and(
-          inArray(productStocksTable.id, rows.map(r => r.id)),
-          eq(productStocksTable.status, "available")
-        ));
+        .where(inArray(productStocksTable.id, rows.map(r => r.id)));
     });
   } catch (err) {
     if ((err as Error).message !== INSUFFICIENT_STOCK_SENTINEL) throw err;
@@ -1672,10 +1726,15 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             `Delivered order ${order.orderCode} via wallet`, { orderId });
 
         } else if (walletResult.outcome === "out_of_stock") {
-          // Cancel the order — no money was taken
+          // Cancel the order — no money was taken. Also release any reserved stock
+          // (the transaction already aborted the status update, so rows are still
+          // 'reserved'; we must reset them to 'available' for other buyers).
           await db.update(ordersTable)
             .set({ status: "cancelled" })
             .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "pending")));
+          await db.update(productStocksTable)
+            .set({ status: "available", orderId: null })
+            .where(and(eq(productStocksTable.orderId, orderId), eq(productStocksTable.status, "reserved")));
           await logBotAction("wallet_payment_cancelled_no_stock", String(chatId), customer.id,
             `Wallet payment cancelled — out of stock for order ${orderId}`, { orderId }, "warn");
           await sendMessage(chatId, "❌ Sản phẩm đã hết hàng. Đơn hàng đã bị hủy và bạn không bị tính phí.", {

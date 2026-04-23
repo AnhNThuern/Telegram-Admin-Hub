@@ -1,4 +1,4 @@
-import { db, ordersTable, transactionsTable, customersTable, botLogsTable } from "@workspace/db";
+import { db, ordersTable, transactionsTable, customersTable, botLogsTable, productStocksTable } from "@workspace/db";
 import { and, eq, lt } from "drizzle-orm";
 import { logger } from "./logger";
 import { sendMessageToCustomer, cleanupExpiredBotPendingActions } from "./bot";
@@ -55,6 +55,13 @@ export async function expireStalePendingOrders(): Promise<{ expired: number }> {
         .update(transactionsTable)
         .set({ status: "cancelled" })
         .where(and(eq(transactionsTable.orderId, order.id), eq(transactionsTable.status, "pending")));
+
+      // Release any stock rows that were reserved for this order at creation time
+      // back to 'available' so they can be purchased by other customers.
+      await db
+        .update(productStocksTable)
+        .set({ status: "available", orderId: null })
+        .where(and(eq(productStocksTable.orderId, order.id), eq(productStocksTable.status, "reserved")));
 
       await db.insert(botLogsTable).values({
         action: "pending_order_expired",
