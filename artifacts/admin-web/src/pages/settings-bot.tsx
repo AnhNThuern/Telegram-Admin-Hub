@@ -470,7 +470,7 @@ export default function SettingsBot() {
           <CardDescription>
             Tuỳ chỉnh tên cửa hàng và lời chào hiển thị khi khách gõ <code>/start</code>.
             Hỗ trợ biến <code>{"{name}"}</code> (tên khách) và <code>{"{shop_name}"}</code> (tên cửa hàng).
-            Định dạng: <code>**in đậm**</code> hoặc HTML <code>&lt;b&gt;in đậm&lt;/b&gt;</code>.
+            Định dạng Markdown: <code>**in đậm**</code>, <code>*in nghiêng*</code>.
             Để trống để dùng mặc định.
           </CardDescription>
         </CardHeader>
