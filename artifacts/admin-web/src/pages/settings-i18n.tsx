@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useListI18nStrings, useBulkUpdateI18nStrings, useFlushI18nCache, getListI18nStringsQueryKey } from "@workspace/api-client-react";
+import { useListI18nStrings, useBulkUpdateI18nStrings, useFlushI18nCache, getListI18nStringsQueryKey, useGetI18nPlaceholders } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,7 @@ function hasPlaceholders(value: string): boolean {
 
 export default function SettingsI18n() {
   const { data, isLoading } = useListI18nStrings();
+  const { data: placeholderMap = {} } = useGetI18nPlaceholders();
   const bulkUpdate = useBulkUpdateI18nStrings();
   const flushCache = useFlushI18nCache();
   const queryClient = useQueryClient();
@@ -251,6 +252,18 @@ export default function SettingsI18n() {
                           </button>
                         )}
                       </div>
+                      {placeholderMap[s.key] && (
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {placeholderMap[s.key].map(token => (
+                            <span
+                              key={token}
+                              className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-mono font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20"
+                            >
+                              {`{${token}}`}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {showPreview && canPreview && (
                         <div className="rounded-md bg-muted/40 border border-border px-3 py-2 text-xs text-foreground whitespace-pre-wrap">
                           {renderPreview(currentValue)}

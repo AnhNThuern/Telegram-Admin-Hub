@@ -2,10 +2,14 @@ import { Router, type IRouter } from "express";
 import { db, i18nStringsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
-import { invalidateI18nCache } from "../lib/i18n";
+import { invalidateI18nCache, getDefaultPlaceholders } from "../lib/i18n";
 import { z } from "zod";
 
 const router: IRouter = Router();
+
+router.get("/i18n/placeholders", requireAuth, (_req, res): void => {
+  res.json(getDefaultPlaceholders());
+});
 
 router.post("/i18n/flush-cache", requireAuth, async (_req, res): Promise<void> => {
   invalidateI18nCache();

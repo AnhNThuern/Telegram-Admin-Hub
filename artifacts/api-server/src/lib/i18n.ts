@@ -50,6 +50,26 @@ export async function tMany(keys: string[], lang: Lang = "vi"): Promise<Record<s
   return result;
 }
 
+/**
+ * Build a map of key → sorted placeholder token names derived from DEFAULT_STRINGS.
+ * Only keys that actually contain at least one {token} pattern are included.
+ */
+export function getDefaultPlaceholders(): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const entry of DEFAULT_STRINGS) {
+    const tokens = new Set<string>();
+    for (const text of [entry.vi, entry.en]) {
+      for (const m of text.matchAll(/\{(\w+)\}/g)) {
+        tokens.add(m[1]);
+      }
+    }
+    if (tokens.size > 0) {
+      result[entry.key] = Array.from(tokens).sort();
+    }
+  }
+  return result;
+}
+
 // ─── Default seed strings ───────────────────────────────────────────────────
 // These are inserted on first run or when missing.
 export const DEFAULT_STRINGS: Array<{ key: string; vi: string; en: string }> = [
