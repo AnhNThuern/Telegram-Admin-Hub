@@ -18,6 +18,7 @@ import {
   AddProductStocksBody,
   DeleteStockParams,
   NotifyProductRestockedParams,
+  ListProductStockRequestsParams,
 } from "@workspace/api-zod";
 import type z from "zod";
 
@@ -50,6 +51,7 @@ router.get("/products", requireAuth, validateQuery(ListProductsQueryParams), asy
     createdAt: productsTable.createdAt,
     updatedAt: productsTable.updatedAt,
     stockCount: sql<number>`COALESCE(SUM(CASE WHEN ${productStocksTable.status} = 'available' THEN 1 ELSE 0 END), 0)::int`,
+    stockRequestCount: sql<number>`(SELECT COUNT(DISTINCT bl.customer_id) FROM bot_logs bl WHERE bl.action = 'stock_request' AND (bl.metadata->>'productId')::int = ${productsTable.id})::int`,
   })
     .from(productsTable)
     .leftJoin(productStocksTable, eq(productStocksTable.productId, productsTable.id))
@@ -77,7 +79,7 @@ router.post("/products", requireAuth, validateBody(CreateProductBody), async (re
     maxQuantity: maxQuantity ?? 100,
     isActive: isActive ?? true,
   }).returning();
-  res.status(201).json({ ...product, stockCount: 0 });
+  res.status(201).json({ ...product, stockCount: 0, stockRequestCount: 0 });
 });
 
 router.get("/products/:id", requireAuth, validateParams(GetProductParams), async (req, res): Promise<void> => {
@@ -98,6 +100,7 @@ router.get("/products/:id", requireAuth, validateParams(GetProductParams), async
     createdAt: productsTable.createdAt,
     updatedAt: productsTable.updatedAt,
     stockCount: sql<number>`COALESCE(SUM(CASE WHEN ${productStocksTable.status} = 'available' THEN 1 ELSE 0 END), 0)::int`,
+    stockRequestCount: sql<number>`(SELECT COUNT(DISTINCT bl.customer_id) FROM bot_logs bl WHERE bl.action = 'stock_request' AND (bl.metadata->>'productId')::int = ${productsTable.id})::int`,
   })
     .from(productsTable)
     .leftJoin(productStocksTable, eq(productStocksTable.productId, productsTable.id))
@@ -139,7 +142,8 @@ router.patch("/products/:id", requireAuth, validateParams(UpdateProductParams), 
     return;
   }
   const [stockRow] = await db.select({ count: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, id), eq(productStocksTable.status, "available")));
-  res.json({ ...product, stockCount: stockRow?.count ?? 0 });
+  const [requestRow] = await db.select({ count: sql<number>`COUNT(DISTINCT customer_id)::int` }).from(botLogsTable).where(and(eq(botLogsTable.action, "stock_request"), sql`(${botLogsTable.metadata}->>'productId')::int = ${id}`));
+  res.json({ ...product, stockCount: stockRow?.count ?? 0, stockRequestCount: requestRow?.count ?? 0 });
 });
 
 router.delete("/products/:id", requireAuth, validateParams(DeleteProductParams), async (req, res): Promise<void> => {
@@ -266,6 +270,37 @@ router.delete("/stocks/:id", requireAuth, validateParams(DeleteStockParams), asy
     return;
   }
   res.sendStatus(204);
+});
+
+router.get("/products/:id/stock-requests", requireAuth, validateParams(ListProductStockRequestsParams), async (req, res): Promise<void> => {
+  const { id: productId } = req.params as unknown as z.infer<typeof ListProductStockRequestsParams>;
+
+  const [product] = await db.select({ id: productsTable.id }).from(productsTable).where(eq(productsTable.id, productId));
+  if (!product) {
+    res.status(404).json({ error: "Product not found" });
+    return;
+  }
+
+  const rows = await db
+    .selectDistinctOn([botLogsTable.customerId], {
+      customerId: botLogsTable.customerId,
+      firstName: customersTable.firstName,
+      lastName: customersTable.lastName,
+      username: customersTable.username,
+      chatId: botLogsTable.chatId,
+      requestedAt: botLogsTable.createdAt,
+    })
+    .from(botLogsTable)
+    .leftJoin(customersTable, eq(customersTable.id, botLogsTable.customerId))
+    .where(
+      and(
+        eq(botLogsTable.action, "stock_request"),
+        sql`(${botLogsTable.metadata}->>'productId')::int = ${productId}`
+      )
+    )
+    .orderBy(botLogsTable.customerId, botLogsTable.createdAt);
+
+  res.json({ data: rows, total: rows.length });
 });
 
 router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRestockedParams), async (req, res): Promise<void> => {

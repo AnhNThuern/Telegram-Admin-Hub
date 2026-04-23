@@ -1,12 +1,12 @@
-import { useListProducts, useCreateProduct, useUpdateProduct, useDeleteProduct, getListProductsQueryKey, useListCategories, Product } from "@workspace/api-client-react";
+import { useListProducts, useCreateProduct, useUpdateProduct, useDeleteProduct, getListProductsQueryKey, useListCategories, useListProductStockRequests, Product } from "@workspace/api-client-react";
 import { useState } from "react";
 import { formatVND } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Box } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Box, Users } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -30,11 +30,65 @@ const productSchema = z.object({
 
 type ProductFormValues = z.infer<typeof productSchema>;
 
+function StockRequestersDialog({ productId, productName, onClose }: { productId: number; productName: string; onClose: () => void }) {
+  const { data, isLoading } = useListProductStockRequests(productId);
+
+  return (
+    <DialogContent className="sm:max-w-[500px] max-h-[70vh] overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Users className="h-4 w-4" />
+          Khách hàng yêu cầu hàng mới
+        </DialogTitle>
+        <p className="text-sm text-muted-foreground mt-1">{productName}</p>
+      </DialogHeader>
+      {isLoading ? (
+        <div className="flex h-20 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : !data?.data?.length ? (
+        <p className="text-sm text-muted-foreground text-center py-6">Chưa có yêu cầu hàng mới nào.</p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">{data.total} khách hàng đã yêu cầu</p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Khách hàng</TableHead>
+                <TableHead>Username</TableHead>
+                <TableHead>Chat ID</TableHead>
+                <TableHead>Thời gian</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.data.map((requester, idx) => (
+                <TableRow key={requester.customerId ?? idx}>
+                  <TableCell className="font-medium">
+                    {[requester.firstName, requester.lastName].filter(Boolean).join(" ") || "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {requester.username ? `@${requester.username}` : "—"}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{requester.chatId ?? "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {requester.requestedAt ? new Date(requester.requestedAt).toLocaleString("vi-VN") : "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </DialogContent>
+  );
+}
+
 export default function Products() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<string>("all");
   const [isActiveFilter, setIsActiveFilter] = useState<string>("all");
+  const [stockRequestProduct, setStockRequestProduct] = useState<{ id: number; name: string } | null>(null);
   
   const { data: productList, isLoading } = useListProducts({
     page,
@@ -310,6 +364,7 @@ export default function Products() {
                   <TableHead>Danh mục</TableHead>
                   <TableHead>Giá bán</TableHead>
                   <TableHead>Tồn kho</TableHead>
+                  <TableHead>Yêu cầu hàng mới</TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
                 </TableRow>
@@ -336,6 +391,20 @@ export default function Products() {
                       </span>
                     </TableCell>
                     <TableCell>
+                      {product.stockRequestCount > 0 ? (
+                        <button
+                          onClick={() => setStockRequestProduct({ id: product.id, name: product.name })}
+                          data-testid={`btn-stock-requests-${product.id}`}
+                          className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-600 hover:bg-amber-500/20 transition-colors cursor-pointer"
+                        >
+                          <Users className="h-3 w-3" />
+                          {product.stockRequestCount}
+                        </button>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${product.isActive ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"}`}>
                         {product.isActive ? "Đang bán" : "Đã ẩn"}
                       </span>
@@ -359,7 +428,7 @@ export default function Products() {
                 ))}
                 {productList?.data?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                       Không tìm thấy sản phẩm nào.
                     </TableCell>
                   </TableRow>
@@ -369,6 +438,16 @@ export default function Products() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!stockRequestProduct} onOpenChange={(open) => { if (!open) setStockRequestProduct(null); }}>
+        {stockRequestProduct && (
+          <StockRequestersDialog
+            productId={stockRequestProduct.id}
+            productName={stockRequestProduct.name}
+            onClose={() => setStockRequestProduct(null)}
+          />
+        )}
+      </Dialog>
 
       <div className="flex justify-between items-center mt-4">
         <Button

@@ -148,6 +148,7 @@ export interface Product {
   maxQuantity: number;
   isActive: boolean;
   stockCount: number;
+  stockRequestCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -166,6 +167,7 @@ export interface ProductDetail {
   maxQuantity: number;
   isActive: boolean;
   stockCount: number;
+  stockRequestCount: number;
   category?: Category | null;
   createdAt: string;
   updatedAt: string;
@@ -237,6 +239,20 @@ export interface NotifyProductResponse {
   /** Total number of users attempted */
   total: number;
   message: string;
+}
+
+export interface StockRequester {
+  customerId?: number | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  username?: string | null;
+  chatId?: string | null;
+  requestedAt: string;
+}
+
+export interface StockRequestListResponse {
+  data: StockRequester[];
+  total: number;
 }
 
 export interface Order {

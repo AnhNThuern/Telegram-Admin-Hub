@@ -182,6 +182,7 @@ export const ListProductsResponse = zod.object({
       maxQuantity: zod.number(),
       isActive: zod.boolean(),
       stockCount: zod.number(),
+      stockRequestCount: zod.number(),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     }),
@@ -229,6 +230,7 @@ export const GetProductResponse = zod.object({
   maxQuantity: zod.number(),
   isActive: zod.boolean(),
   stockCount: zod.number(),
+  stockRequestCount: zod.number(),
   category: zod
     .object({
       id: zod.number(),
@@ -278,6 +280,7 @@ export const UpdateProductResponse = zod.object({
   maxQuantity: zod.number(),
   isActive: zod.boolean(),
   stockCount: zod.number(),
+  stockRequestCount: zod.number(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -325,6 +328,27 @@ export const AddProductStocksParams = zod.object({
 
 export const AddProductStocksBody = zod.object({
   lines: zod.array(zod.string()),
+});
+
+/**
+ * @summary List unique customers who requested restock for a product
+ */
+export const ListProductStockRequestsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ListProductStockRequestsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      customerId: zod.number().nullish(),
+      firstName: zod.string().nullish(),
+      lastName: zod.string().nullish(),
+      username: zod.string().nullish(),
+      chatId: zod.string().nullish(),
+      requestedAt: zod.coerce.date(),
+    }),
+  ),
+  total: zod.number(),
 });
 
 /**

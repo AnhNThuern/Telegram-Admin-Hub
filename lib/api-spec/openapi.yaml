@@ -401,6 +401,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/AddStocksResponse"
 
+  /products/{id}/stock-requests:
+    get:
+      operationId: listProductStockRequests
+      tags: [products]
+      summary: List unique customers who requested restock for a product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Stock requesters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockRequestListResponse"
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /products/{id}/notify:
     post:
       operationId: notifyProductRestocked
@@ -1468,6 +1493,8 @@ components:
           type: boolean
         stockCount:
           type: integer
+        stockRequestCount:
+          type: integer
         createdAt:
           type: string
           format: date-time
@@ -1483,6 +1510,7 @@ components:
         - maxQuantity
         - isActive
         - stockCount
+        - stockRequestCount
         - createdAt
         - updatedAt
 
@@ -1520,6 +1548,8 @@ components:
           type: boolean
         stockCount:
           type: integer
+        stockRequestCount:
+          type: integer
         category:
           $ref: "#/components/schemas/Category"
           nullable: true
@@ -1538,6 +1568,7 @@ components:
         - maxQuantity
         - isActive
         - stockCount
+        - stockRequestCount
         - createdAt
         - updatedAt
 
@@ -1695,6 +1726,43 @@ components:
         - sent
         - total
         - message
+
+    StockRequester:
+      type: object
+      properties:
+        customerId:
+          type: integer
+          nullable: true
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        username:
+          type: string
+          nullable: true
+        chatId:
+          type: string
+          nullable: true
+        requestedAt:
+          type: string
+          format: date-time
+      required:
+        - requestedAt
+
+    StockRequestListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/StockRequester"
+        total:
+          type: integer
+      required:
+        - data
+        - total
 
     Order:
       type: object

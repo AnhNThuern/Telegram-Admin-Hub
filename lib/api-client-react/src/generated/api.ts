@@ -64,6 +64,7 @@ import type {
   SaveBotConfigRequest,
   SavePaymentConfigRequest,
   StockList,
+  StockRequestListResponse,
   SystemSettings,
   TestTokenRequest,
   TestTokenResponse,
@@ -1518,6 +1519,98 @@ export const useAddProductStocks = <
 > => {
   return useMutation(getAddProductStocksMutationOptions(options));
 };
+
+/**
+ * @summary List unique customers who requested restock for a product
+ */
+export const getListProductStockRequestsUrl = (id: number) => {
+  return `/api/products/${id}/stock-requests`;
+};
+
+export const listProductStockRequests = async (
+  id: number,
+  options?: RequestInit,
+): Promise<StockRequestListResponse> => {
+  return customFetch<StockRequestListResponse>(
+    getListProductStockRequestsUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListProductStockRequestsQueryKey = (id: number) => {
+  return [`/api/products/${id}/stock-requests`] as const;
+};
+
+export const getListProductStockRequestsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listProductStockRequests>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listProductStockRequests>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListProductStockRequestsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listProductStockRequests>>
+  > = ({ signal }) =>
+    listProductStockRequests(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listProductStockRequests>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListProductStockRequestsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listProductStockRequests>>
+>;
+export type ListProductStockRequestsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List unique customers who requested restock for a product
+ */
+
+export function useListProductStockRequests<
+  TData = Awaited<ReturnType<typeof listProductStockRequests>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listProductStockRequests>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListProductStockRequestsQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Broadcast a restock notification to all registered Telegram users
