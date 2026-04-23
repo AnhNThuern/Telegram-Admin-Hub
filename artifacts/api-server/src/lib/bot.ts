@@ -410,17 +410,30 @@ async function upsertCustomer(from: { id: number; first_name?: string; last_name
 }
 
 /**
- * Convert a lightweight subset of Markdown to Telegram HTML so admins can
- * write either style in the welcome message field.
+ * Escape characters that have special meaning in Telegram's HTML parse mode
+ * (`&`, `<`, `>`). Must be called on any dynamic/user-supplied string before
+ * it is embedded in a message template.
+ */
+function escapeHtmlEntities(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Convert a lightweight subset of Markdown to Telegram HTML.
  *
- * Supported conversions (safe — no HTML injection because the surrounding
- * parse_mode is already HTML and Telegram auto-escapes unknown tags):
+ * IMPORTANT: call this on text that has already been HTML-escaped so that
+ * dynamic values (names, shop names) cannot inject arbitrary HTML tags.
+ *
  *   **bold**  → <b>bold</b>
  *   __bold__  → <b>bold</b>
+ *   *italic*  → <i>italic</i>
  *   _italic_  → <i>italic</i>
  *
- * HTML tags already present in the string (<b>, <i>, <code>, etc.) are passed
- * through unchanged, so admins who prefer writing HTML directly still work.
+ * Intentional `<b>/<i>` tags inserted by our code (e.g. for placeholder
+ * substitution) must be injected AFTER this call so they are not escaped.
  */
 function mdToHtml(text: string): string {
   return text
@@ -434,19 +447,25 @@ async function showMainMenu(chatId: number | string, customerName?: string, edit
   const name = customerName ?? "bạn";
   const { shopName, welcomeMessage } = await getBotConfig();
 
+  // Escape dynamic values so special chars (&, <, >) do not break Telegram HTML.
+  const safeName = escapeHtmlEntities(name);
+  const safeShopName = shopName ? escapeHtmlEntities(shopName) : null;
+
   let welcomeText: string;
   if (welcomeMessage && welcomeMessage.trim()) {
-    // Admin has configured a custom welcome message. Support {name} and {shop_name}
-    // placeholders so the message can be personalized without code changes.
-    // Convert Markdown bold/italic to HTML (bot uses HTML parse mode throughout).
-    welcomeText = mdToHtml(
-      welcomeMessage
-        .replace(/\{name\}/g, `<b>${name}</b>`)
-        .replace(/\{shop_name\}/g, shopName ? `<b>${shopName}</b>` : "cửa hàng"),
-    );
+    // Admin has configured a custom welcome message.
+    // Processing order (important for safety):
+    //   1. Escape the raw template to neutralise any accidental HTML from admin input
+    //   2. Apply Markdown → HTML conversion on the escaped template
+    //   3. Substitute {name}/{shop_name} with safe, pre-escaped bold values
+    const escapedTemplate = escapeHtmlEntities(welcomeMessage);
+    const withMarkdown = mdToHtml(escapedTemplate);
+    welcomeText = withMarkdown
+      .replace(/\{name\}/g, `<b>${safeName}</b>`)
+      .replace(/\{shop_name\}/g, safeShopName ? `<b>${safeShopName}</b>` : "cửa hàng");
   } else {
-    const shop = shopName ? `<b>${shopName}</b>` : "cửa hàng";
-    welcomeText = `👋 Chào mừng <b>${name}</b> đến với ${shop}!\n\nChọn tùy chọn bên dưới:`;
+    const shop = safeShopName ? `<b>${safeShopName}</b>` : "cửa hàng";
+    welcomeText = `👋 Chào mừng <b>${safeName}</b> đến với ${shop}!\n\nChọn tùy chọn bên dưới:`;
   }
 
   // Render the inline menu (in place when navigating). The persistent reply
