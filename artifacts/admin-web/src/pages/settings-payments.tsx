@@ -3,11 +3,11 @@ import { useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, CreditCard, Copy, Check, Webhook } from "lucide-react";
+import { Loader2, CreditCard, Copy, Check, Webhook, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -80,8 +80,11 @@ export default function SettingsPayments() {
       { data: payload as Parameters<typeof saveConfig.mutate>[0]['data'] },
       {
         onSuccess: () => {
-          toast({ title: "Đã lưu cấu hình thanh toán" });
+          toast({ title: "✓ Đã lưu cấu hình thanh toán", description: "Cài đặt SePay đã được cập nhật thành công." });
           queryClient.invalidateQueries({ queryKey: getGetPaymentConfigQueryKey() });
+        },
+        onError: () => {
+          toast({ title: "Lưu thất bại", description: "Không thể lưu cấu hình. Vui lòng thử lại.", variant: "destructive" });
         },
       }
     );
@@ -231,10 +234,21 @@ export default function SettingsPayments() {
                 name="apiKey"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>SePay API Key {config?.apiKey && <span className="text-xs text-muted-foreground font-normal ml-1">(để trống = giữ nguyên)</span>}</FormLabel>
+                    <FormLabel>SePay API Key</FormLabel>
+                    {config?.apiKey && (
+                      <div className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 font-medium" data-testid="badge-api-key-set">
+                        <ShieldCheck className="h-4 w-4 shrink-0" />
+                        <span>API key đã được lưu ({config.apiKey})</span>
+                      </div>
+                    )}
                     <FormControl>
-                      <Input type="password" placeholder={config?.apiKey ? "Để trống để giữ nguyên key hiện tại" : "Key lấy từ sepay.vn"} {...field} />
+                      <Input type="password" placeholder={config?.apiKey ? "Nhập key mới để thay thế" : "Key lấy từ sepay.vn"} {...field} />
                     </FormControl>
+                    <FormDescription data-testid="hint-api-key">
+                      {config?.apiKey
+                        ? "Để trống để giữ nguyên API key hiện tại. Nhập giá trị mới để thay thế."
+                        : "Nhập API key từ trang quản trị sepay.vn."}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
