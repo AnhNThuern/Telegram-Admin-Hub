@@ -759,30 +759,38 @@ async function showActivePromotions(chatId: number | string, lang: Lang = "vi"):
 
 async function showCategories(chatId: number | string, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
   const { categoriesTable } = await import("@workspace/db");
-  // Include per-category available stock count so we can show ✅ / ❌ labels
-  const categories = await db.select({
-    id: categoriesTable.id,
-    name: categoriesTable.name,
-    icon: categoriesTable.icon,
-    stockCount: sqlOp<number>`(
-      SELECT COUNT(*) FROM product_stocks ps
-      JOIN products p ON ps.product_id = p.id
-      WHERE p.category_id = categories.id AND p.is_active = true AND ps.status = 'available'
-    )::int`,
-  }).from(categoriesTable).where(eq(categoriesTable.isActive, true));
+  // Two separate queries to avoid Drizzle ORM v0.45.1 bug where column references
+  // inside sql`` templates get mangled when used alongside named db.select() fields.
+  const [categories, stockRows] = await Promise.all([
+    db.select({
+      id: categoriesTable.id,
+      name: categoriesTable.name,
+      icon: categoriesTable.icon,
+    }).from(categoriesTable).where(eq(categoriesTable.isActive, true)),
+    db.select({
+      categoryId: productsTable.categoryId,
+      cnt: count(),
+    })
+      .from(productStocksTable)
+      .innerJoin(productsTable, eq(productStocksTable.productId, productsTable.id))
+      .where(and(eq(productsTable.isActive, true), eq(productStocksTable.status, "available")))
+      .groupBy(productsTable.categoryId),
+  ]);
+  const stockMap = new Map(stockRows.map(r => [r.categoryId, Number(r.cnt)]));
+  const categoriesWithStock = categories.map(c => ({ ...c, stockCount: stockMap.get(c.id) ?? 0 }));
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
     t("cat.none", lang),
     t("btn.home", lang),
     t("cat.title", lang),
   ]);
-  if (categories.length === 0) {
+  if (categoriesWithStock.length === 0) {
     await renderView(chatId, editMessageId, noneMsg, {
       reply_markup: { inline_keyboard: [[{ text: backLabel, callback_data: "main_menu" }]] },
     });
     return;
   }
   const outLabel = lang === "en" ? "Out of Stock" : "Hết hàng";
-  const keyboard = categories.map(c => [{
+  const keyboard = categoriesWithStock.map(c => [{
     text: `${c.icon ?? "📁"} ${c.name} ${c.stockCount > 0 ? `✅ (${c.stockCount})` : `❌ ${outLabel}`}`,
     callback_data: `cat_${c.id}`,
   }]);
