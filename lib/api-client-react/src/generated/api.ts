@@ -3948,6 +3948,87 @@ export const useDisconnectBot = <
 };
 
 /**
+ * @summary Re-register bot commands with Telegram
+ */
+export const getRegisterBotCommandsUrl = () => {
+  return `/api/bot/register-commands`;
+};
+
+export const registerBotCommands = async (
+  options?: RequestInit,
+): Promise<MessageResponse> => {
+  return customFetch<MessageResponse>(getRegisterBotCommandsUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRegisterBotCommandsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof registerBotCommands>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof registerBotCommands>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["registerBotCommands"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof registerBotCommands>>,
+    void
+  > = () => {
+    return registerBotCommands(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RegisterBotCommandsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof registerBotCommands>>
+>;
+
+export type RegisterBotCommandsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Re-register bot commands with Telegram
+ */
+export const useRegisterBotCommands = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof registerBotCommands>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof registerBotCommands>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRegisterBotCommandsMutationOptions(options));
+};
+
+/**
  * @summary Telegram webhook handler
  */
 export const getHandleBotWebhookUrl = () => {

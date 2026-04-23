@@ -1,10 +1,10 @@
-import { useGetBotConfig, useSaveBotConfig, useTestBotToken, useSetBotWebhook, useDisconnectBot, getGetBotConfigQueryKey } from "@workspace/api-client-react";
+import { useGetBotConfig, useSaveBotConfig, useTestBotToken, useSetBotWebhook, useDisconnectBot, useRegisterBotCommands, getGetBotConfigQueryKey } from "@workspace/api-client-react";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Bot, Unplug, Plug, Activity, Eye, EyeOff, Play, Square, Keyboard, Store } from "lucide-react";
+import { Loader2, Bot, Unplug, Plug, Activity, Eye, EyeOff, Play, Square, Keyboard, Store, Terminal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -52,6 +52,7 @@ export default function SettingsBot() {
   const testToken = useTestBotToken();
   const setWebhook = useSetBotWebhook();
   const disconnectBot = useDisconnectBot();
+  const registerCommands = useRegisterBotCommands();
 
   const form = useForm<BotFormValues>({
     resolver: zodResolver(botSchema),
@@ -282,6 +283,20 @@ export default function SettingsBot() {
     );
   };
 
+  const handleRegisterCommands = () => {
+    registerCommands.mutate(
+      undefined,
+      {
+        onSuccess: () => {
+          toast({ title: "Đã cập nhật lệnh bot", description: "Danh sách lệnh đã được đăng ký với Telegram." });
+        },
+        onError: (err) => {
+          toast({ variant: "destructive", title: "Cập nhật lệnh thất bại", description: getApiErrorMessage(err) });
+        },
+      }
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -447,6 +462,16 @@ export default function SettingsBot() {
                 Cập nhật Webhook
               </Button>
             </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleRegisterCommands}
+              disabled={registerCommands.isPending || !config?.isConnected}
+              data-testid="btn-register-commands"
+            >
+              {registerCommands.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Terminal className="mr-2 h-4 w-4" />}
+              Cập nhật lệnh bot
+            </Button>
             <Button 
               variant="destructive" 
               className="w-full" 

@@ -1026,6 +1026,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /bot/register-commands:
+    post:
+      operationId: registerBotCommands
+      tags: [bot]
+      summary: Re-register bot commands with Telegram
+      responses:
+        "200":
+          description: Commands registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
   /bot/disconnect:
     post:
       operationId: disconnectBot

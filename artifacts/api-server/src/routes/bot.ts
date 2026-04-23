@@ -57,15 +57,21 @@ export async function registerBotCommands(botToken: string): Promise<void> {
   ];
 
   const results = await Promise.allSettled(calls);
+  const errors: string[] = [];
   for (const result of results) {
     if (result.status === "rejected") {
       logger.warn({ err: result.reason }, "setMyCommands call failed");
+      errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
     } else {
       const data = await result.value.json() as { ok: boolean; description?: string };
       if (!data.ok) {
         logger.warn({ description: data.description }, "setMyCommands returned not-ok");
+        errors.push(data.description ?? "Telegram returned not-ok");
       }
     }
+  }
+  if (errors.length > 0) {
+    throw new Error(errors.join("; "));
   }
 }
 
@@ -230,6 +236,25 @@ router.post("/bot/set-webhook", requireAuth, async (_req, res): Promise<void> =>
   } catch (err) {
     logger.error({ err }, "Error setting webhook");
     res.status(500).json({ error: "Failed to set webhook" });
+  }
+});
+
+router.post("/bot/register-commands", requireAuth, async (_req, res): Promise<void> => {
+  const config = await getConfig();
+  if (!config?.botToken) {
+    res.status(400).json({ error: "Bot chưa được cấu hình" });
+    return;
+  }
+  if (!config.isConnected) {
+    res.status(400).json({ error: "Bot chưa kết nối" });
+    return;
+  }
+  try {
+    await registerBotCommands(config.botToken);
+    res.json({ message: "Đã cập nhật lệnh bot thành công" });
+  } catch (err) {
+    logger.error({ err }, "registerBotCommands failed via admin endpoint");
+    res.status(500).json({ error: "Cập nhật lệnh bot thất bại" });
   }
 });
 
