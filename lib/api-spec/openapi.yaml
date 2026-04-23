@@ -2636,6 +2636,10 @@ components:
         binanceWebhookUrl:
           type: string
           nullable: true
+        usdtRate:
+          type: number
+          nullable: true
+          description: Global VND/USDT exchange rate used to compute USDT amounts in Binance Pay orders.
         updatedAt:
           type: string
           format: date-time
@@ -2670,6 +2674,9 @@ components:
           type: string
         binanceIsActive:
           type: boolean
+        usdtRate:
+          type: number
+          description: Global VND/USDT exchange rate for Binance Pay orders.
 
     BinanceTestConnectionResponse:
       type: object

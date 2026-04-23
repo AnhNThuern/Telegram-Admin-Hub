@@ -226,22 +226,23 @@ router.post("/payments/binance/webhook", async (req: Request, res: Response): Pr
       return;
     }
 
-    // Find the pending Binance transaction — try prepayId first (most reliable),
-    // then fall back to merchantTradeNo (now stored as the exact prefixed value).
-    // Using OR when both are present ensures we match even if one key is missing.
-    const conditions = [];
-    if (prepayId) conditions.push(eq(transactionsTable.binancePrepayId, prepayId));
-    if (merchantTradeNo) conditions.push(eq(transactionsTable.paymentReference, merchantTradeNo));
+    // Find the most-recent PENDING Binance transaction.
+    // Priority: exact prepayId match (unique per Binance order attempt).
+    // Fallback: paymentReference = merchantTradeNo when prepayId not in payload.
+    // Always restrict to provider='binance' AND status='pending' so cancelled/
+    // refreshed-away rows are never selected by accident.
+    const paymentConditions = [
+      eq(transactionsTable.provider, "binance"),
+      eq(transactionsTable.status, "pending"),
+    ];
+    if (prepayId) paymentConditions.push(eq(transactionsTable.binancePrepayId, prepayId));
+    else if (merchantTradeNo) paymentConditions.push(eq(transactionsTable.paymentReference, merchantTradeNo));
 
     const [transaction] = await db
       .select()
       .from(transactionsTable)
-      .where(
-        conditions.length === 1
-          ? conditions[0]!
-          : or(...conditions),
-      )
-      .orderBy(transactionsTable.createdAt)
+      .where(and(...paymentConditions))
+      .orderBy(desc(transactionsTable.createdAt))
       .limit(1);
 
     if (!transaction) {
