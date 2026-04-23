@@ -27,24 +27,52 @@ async function getConfig() {
  * We validate this against the stored apiKey to ensure the webhook
  * originates from SePay and not from a forged request.
  */
+function maskKey(s: string): string {
+  if (!s) return "(empty)";
+  if (s.length <= 8) return "****";
+  return s.substring(0, 4) + "..." + s.substring(s.length - 4) + ` (len=${s.length})`;
+}
+
 async function verifySepaySignature(req: Request): Promise<boolean> {
   const config = await getConfig();
+  const authHeader = String(req.headers["authorization"] ?? "");
+
   if (!config?.apiKey) {
-    // If no API key configured, reject all webhooks for safety
-    logger.warn("SePay webhook received but no API key configured — rejecting");
+    logger.warn({ ip: req.ip, hasAuthHeader: authHeader.length > 0 },
+      "SePay webhook received but no API key configured in admin panel — rejecting");
     return false;
   }
 
-  const authHeader = req.headers["authorization"] ?? "";
+  if (!authHeader) {
+    logger.warn({ ip: req.ip, headers: Object.keys(req.headers) },
+      "SePay webhook missing Authorization header");
+    return false;
+  }
+
   // SePay format: "Apikey <your-api-key>"
-  const match = /^Apikey\s+(.+)$/i.exec(String(authHeader));
+  const match = /^Apikey\s+(.+)$/i.exec(authHeader);
   if (!match) {
-    logger.warn("SePay webhook missing or malformed Authorization header");
+    logger.warn({
+      ip: req.ip,
+      receivedAuthFormat: authHeader.substring(0, 20) + "...",
+      expected: "Apikey <your-api-key>",
+    }, "SePay webhook Authorization header format invalid (expected: 'Apikey <key>')");
     return false;
   }
 
   const providedKey = match[1].trim();
-  return providedKey === config.apiKey;
+  const ok = providedKey === config.apiKey;
+  if (!ok) {
+    logger.warn({
+      ip: req.ip,
+      providedKey: maskKey(providedKey),
+      storedKey: maskKey(config.apiKey),
+    }, "SePay webhook API key MISMATCH — the key in SePay dashboard does not match the key saved in admin panel");
+  } else {
+    logger.info({ ip: req.ip, keyLen: providedKey.length },
+      "SePay webhook authenticated successfully");
+  }
+  return ok;
 }
 
 // Compute the public URL admins should paste into SePay's webhook settings.
