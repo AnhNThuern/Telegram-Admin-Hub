@@ -99,6 +99,11 @@ export default function SettingsI18n() {
           toast({ title: "Đã lưu thành công", description: `Cập nhật ${updates.length} chuỗi ngôn ngữ.` });
           setEdits({});
           queryClient.invalidateQueries({ queryKey: getListI18nStringsQueryKey() });
+          flushCache.mutate(undefined, {
+            onError: () => {
+              console.warn("Auto-flush cache after save failed; bot strings may be stale until manual flush.");
+            },
+          });
         },
         onError: () => {
           toast({ title: "Lỗi", description: "Không thể lưu. Vui lòng thử lại.", variant: "destructive" });
