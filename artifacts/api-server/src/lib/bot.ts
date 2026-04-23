@@ -1194,13 +1194,16 @@ async function showOrderConfirmScreen(
 }
 
 async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null, lang: Lang = "vi"): Promise<void> {
-  const [product] = await db.select({
-    id: productsTable.id,
-    name: productsTable.name,
-    price: productsTable.price,
-    minQuantity: productsTable.minQuantity,
-    maxQuantity: productsTable.maxQuantity,
-  }).from(productsTable).where(eq(productsTable.id, productId));
+  const [product, { shopName }] = await Promise.all([
+    db.select({
+      id: productsTable.id,
+      name: productsTable.name,
+      price: productsTable.price,
+      minQuantity: productsTable.minQuantity,
+      maxQuantity: productsTable.maxQuantity,
+    }).from(productsTable).where(eq(productsTable.id, productId)).then(r => r[0]),
+    getBotConfig(),
+  ]);
 
   const strings = await tMany([
     "prod.not_found", "order.invalid_qty", "prod.out_of_stock_req", "prod.stock_request",
@@ -1375,10 +1378,16 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   const customerBalance = customer ? parseFloat(customer.balance) : 0;
   const orderTotal = parseFloat(totalAmount);
 
+  const orderCreatedHeader = shopName
+    ? (lang === "en"
+        ? `✅ <b>${shopName} confirmed Order #${orderCode}!</b>\n\nHow would you like to pay?`
+        : `✅ <b>${shopName} xác nhận đơn hàng #${orderCode}!</b>\n\nBạn muốn thanh toán bằng cách nào?`)
+    : strings["order.created"].replace("{code}", orderCode);
+
   if (customerBalance >= orderTotal) {
     // Offer both payment methods
     const balanceFormatted = customerBalance.toLocaleString("vi-VN");
-    let msg = strings["order.created"].replace("{code}", orderCode) + "\n\n";
+    let msg = orderCreatedHeader + "\n\n";
     msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
     msg += subtotalLine;
     msg += strings["order.total_line"].replace("{amount}", amountFormatted) + "\n";
@@ -1403,7 +1412,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   const paymentInfo = await createPaymentRequest(order.id);
 
   if (paymentInfo) {
-    let msg = strings["order.created"].replace("{code}", orderCode) + "\n\n";
+    let msg = orderCreatedHeader + "\n\n";
     msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
     msg += subtotalLine;
     msg += strings["order.total_line"].replace("{amount}", amountFormatted) + "\n\n";
@@ -1782,7 +1791,11 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
   }
 
   // Send stock content to customer
-  let deliveryMsg = `🎉 <b>Đơn hàng ${order.orderCode} đã giao thành công!</b>\n\n`;
+  const { shopName: deliveryShopName } = await getBotConfig();
+  const deliveryHeader = deliveryShopName
+    ? `🎉 <b>${deliveryShopName}: Đơn hàng ${order.orderCode} đã giao thành công!</b>`
+    : `🎉 <b>Đơn hàng ${order.orderCode} đã giao thành công!</b>`;
+  let deliveryMsg = deliveryHeader + "\n\n";
   deliveryMsg += `📦 ${item.productName} x${item.quantity}\n`;
 
   // Show discount details on the receipt if a promo code was applied
@@ -1811,7 +1824,9 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
   if (isRetry) {
     deliveryMsg += `\n✅ Cảm ơn bạn đã kiên nhẫn chờ đợi! Xin lỗi vì sự chậm trễ.`;
   } else {
-    deliveryMsg += `\n✅ Cảm ơn bạn đã mua hàng!`;
+    deliveryMsg += deliveryShopName
+      ? `\n✅ Cảm ơn bạn đã mua hàng tại ${deliveryShopName}!`
+      : `\n✅ Cảm ơn bạn đã mua hàng!`;
   }
 
   await sendMessage(parseInt(customer.chatId), deliveryMsg);
@@ -2530,15 +2545,24 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           );
 
           // Build and send the delivery message
-          const walletDeliveryStrings = await tMany([
-            "delivery.success", "delivery.product_line", "delivery.subtotal_line",
-            "delivery.promo_line", "delivery.discount_line", "delivery.paid_wallet",
-            "delivery.product_info", "delivery.thank_you",
-          ], lang);
+          const [walletDeliveryStrings, { shopName: walletShopName }] = await Promise.all([
+            tMany([
+              "delivery.success", "delivery.product_line", "delivery.subtotal_line",
+              "delivery.promo_line", "delivery.discount_line", "delivery.paid_wallet",
+              "delivery.product_info", "delivery.thank_you",
+            ], lang),
+            getBotConfig(),
+          ]);
           const walletAmountSuffix = lang === "en" ? "₫" : "đ";
 
+          const baseSuccessLine = walletDeliveryStrings["delivery.success"].replace("{code}", order.orderCode);
+          const successLine = walletShopName
+            ? (lang === "en"
+                ? `🎉 <b>${walletShopName}: Order ${order.orderCode} delivered successfully!</b>`
+                : `🎉 <b>${walletShopName}: Đơn hàng ${order.orderCode} đã giao thành công!</b>`)
+            : baseSuccessLine;
           const orderDiscount = parseFloat(order.discountAmount ?? "0");
-          let deliveryMsg = walletDeliveryStrings["delivery.success"].replace("{code}", order.orderCode) + "\n\n";
+          let deliveryMsg = successLine + "\n\n";
           deliveryMsg += walletDeliveryStrings["delivery.product_line"]
             .replace("{name}", item.productName)
             .replace("{qty}", String(item.quantity)) + "\n";
@@ -2566,7 +2590,12 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
           deliveryMsg += `\n${walletDeliveryStrings["delivery.product_info"]}\n`;
           stocks.forEach((s, i) => { deliveryMsg += `${i + 1}. <code>${s.content}</code>\n`; });
-          deliveryMsg += `\n${walletDeliveryStrings["delivery.thank_you"]}`;
+          const thankYouLine = walletShopName
+            ? (lang === "en"
+                ? `✅ <b>Thank you for your purchase at ${walletShopName}!</b> 💚`
+                : `✅ <b>Cảm ơn bạn đã mua hàng tại ${walletShopName}!</b> 💚`)
+            : walletDeliveryStrings["delivery.thank_you"];
+          deliveryMsg += `\n${thankYouLine}`;
 
           await sendMessage(chatId, deliveryMsg);
 
