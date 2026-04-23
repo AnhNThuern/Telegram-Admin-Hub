@@ -767,7 +767,7 @@ async function showCategories(chatId: number | string, editMessageId?: number, l
     stockCount: sqlOp<number>`(
       SELECT COUNT(*) FROM product_stocks ps
       JOIN products p ON ps.product_id = p.id
-      WHERE p.category_id = ${categoriesTable.id} AND p.is_active = true AND ps.status = 'available'
+      WHERE p.category_id = categories.id AND p.is_active = true AND ps.status = 'available'
     )::int`,
   }).from(categoriesTable).where(eq(categoriesTable.isActive, true));
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
