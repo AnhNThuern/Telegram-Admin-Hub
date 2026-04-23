@@ -6,7 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Box, Users } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Box, Users, Smile } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -16,6 +17,19 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link } from "wouter";
+
+const COMMON_EMOJIS = [
+  "📦","🛍️","🎁","💎","⭐","🔥","💡","🎮","🎵","📱",
+  "💻","🖥️","⌨️","🖱️","📷","📸","🎥","📺","📻","🔋",
+  "🍕","🍔","🍣","☕","🍺","🧃","🍰","🍫","🍭","🥤",
+  "👕","👗","👟","👜","🕶️","💍","⌚","🎩","🧥","👔",
+  "🚀","✈️","🚗","🛺","🏍️","🚴","⛵","🛸","🚁","🛻",
+  "🏠","🏢","🏪","🏫","🏥","🏦","🕌","🏰","🏯","⛺",
+  "💰","💳","🪙","💵","🏧","💹","📈","📉","🧾","🤑",
+  "🎓","📚","📖","✏️","📝","🔬","🔭","🎨","🖌️","✂️",
+  "⚽","🏀","🏈","⚾","🎾","🏐","🏉","🎱","🏓","🥊",
+  "🌟","🌈","🌸","🌺","🌻","🍀","🌴","🌵","🐶","🐱",
+];
 
 const productSchema = z.object({
   name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
@@ -108,6 +122,7 @@ export default function Products() {
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -230,10 +245,34 @@ export default function Products() {
                     render={({ field }) => (
                       <FormItem className="col-span-2">
                         <FormLabel>Icon sản phẩm (emoji)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="VD: 📦" {...field} data-testid="input-product-icon" />
-                        </FormControl>
-                        <FormDescription className="text-xs">Nhập một emoji đại diện cho sản phẩm. Mặc định: 📦</FormDescription>
+                        <div className="flex gap-2">
+                          <FormControl>
+                            <Input placeholder="VD: 📦" {...field} data-testid="input-product-icon" />
+                          </FormControl>
+                          <Popover open={emojiPickerOpen} onOpenChange={setEmojiPickerOpen}>
+                            <PopoverTrigger asChild>
+                              <Button type="button" variant="outline" size="icon" title="Chọn emoji" data-testid="btn-emoji-picker">
+                                <Smile className="h-4 w-4" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-72 p-2" align="end">
+                              <div className="grid grid-cols-10 gap-0.5">
+                                {COMMON_EMOJIS.map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    className="flex items-center justify-center h-7 w-7 rounded text-lg hover:bg-muted transition-colors"
+                                    onClick={() => { field.onChange(emoji); setEmojiPickerOpen(false); }}
+                                    data-testid={`emoji-option-${emoji}`}
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <FormDescription className="text-xs">Chọn emoji từ bảng hoặc nhập trực tiếp. Mặc định: 📦</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
