@@ -1,5 +1,5 @@
 import { db, botLogsTable, customersTable, ordersTable, orderItemsTable, productStocksTable, transactionsTable, productsTable, promotionsTable, botPendingActionsTable } from "@workspace/db";
-import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count } from "drizzle-orm";
+import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count, isNotNull } from "drizzle-orm";
 import { logger } from "./logger";
 import { t, tMany, type Lang } from "./i18n";
 
@@ -195,7 +195,6 @@ interface TelegramUpdate {
 
 async function getBotConfig(): Promise<{ botToken: string | null; adminChatId: string | null; warrantyText: string | null; supportText: string | null; infoText: string | null; shopName: string | null; welcomeMessage: string | null }> {
   const { botConfigsTable } = await import("@workspace/db");
-  const { desc } = await import("drizzle-orm");
   const [config] = await db.select().from(botConfigsTable).orderBy(desc(botConfigsTable.id)).limit(1);
   return {
     botToken: config?.botToken ?? null,
@@ -680,11 +679,10 @@ async function showSettingsMenu(chatId: number | string, editMessageId?: number,
 }
 
 async function showAccountInfo(chatId: number | string, customer: typeof customersTable.$inferSelect, lang: Lang = "vi"): Promise<void> {
-  const { sql: drizzleSql } = await import("drizzle-orm");
   const balance = parseFloat(customer.balance ?? "0");
   const [orderStats] = await db.select({
-    totalOrders: drizzleSql<number>`COUNT(*)::int`,
-    totalSpent: drizzleSql<number>`COALESCE(SUM(CASE WHEN status IN ('paid','delivered') THEN total_amount::numeric ELSE 0 END), 0)::numeric`,
+    totalOrders: sqlOp<number>`COUNT(*)::int`,
+    totalSpent: sqlOp<number>`COALESCE(SUM(CASE WHEN status IN ('paid','delivered') THEN total_amount::numeric ELSE 0 END), 0)::numeric`,
   }).from(ordersTable).where(eq(ordersTable.customerId, customer.id));
 
   const totalOrders = Number(orderStats?.totalOrders ?? 0);
@@ -799,9 +797,9 @@ async function showCategories(chatId: number | string, editMessageId?: number, l
 }
 
 async function showProducts(chatId: number | string, categoryId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  // Two separate queries — avoids Drizzle ORM v0.45.1 bug where sql`` templates
-  // inside named db.select() fields mangle column references.
-  const [rawProducts, stockRows] = await Promise.all([
+  // Two separate queries to avoid Drizzle ORM v0.45.1 bug where column references
+  // inside sql`` templates get mangled when used alongside named db.select() fields.
+  const [productRows, stockRows] = await Promise.all([
     db.select({
       id: productsTable.id,
       name: productsTable.name,
@@ -814,15 +812,11 @@ async function showProducts(chatId: number | string, categoryId: number, editMes
     })
       .from(productStocksTable)
       .innerJoin(productsTable, eq(productStocksTable.productId, productsTable.id))
-      .where(and(
-        eq(productsTable.categoryId, categoryId),
-        eq(productsTable.isActive, true),
-        eq(productStocksTable.status, "available"),
-      ))
+      .where(and(eq(productsTable.categoryId, categoryId), eq(productsTable.isActive, true), eq(productStocksTable.status, "available")))
       .groupBy(productStocksTable.productId),
   ]);
   const stockMap = new Map(stockRows.map(r => [r.productId, Number(r.cnt)]));
-  const products = rawProducts.map(p => ({ ...p, stockCount: stockMap.get(p.id) ?? 0 }));
+  const products = productRows.map(p => ({ ...p, stockCount: stockMap.get(p.id) ?? 0 }));
 
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
     t("prod.none", lang),
@@ -847,9 +841,9 @@ async function showProducts(chatId: number | string, categoryId: number, editMes
 }
 
 async function showProductDetail(chatId: number | string, productId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  // Two separate queries — avoids Drizzle ORM v0.45.1 bug where sql`` templates
-  // inside named db.select() fields mangle column references.
-  const [[product], [stockRow]] = await Promise.all([
+  // Two separate queries to avoid Drizzle ORM v0.45.1 bug where column references
+  // inside sql`` templates get mangled when used alongside named db.select() fields.
+  const [[rawProduct], [stockRow]] = await Promise.all([
     db.select({
       id: productsTable.id,
       name: productsTable.name,
@@ -860,11 +854,10 @@ async function showProductDetail(chatId: number | string, productId: number, edi
       maxQuantity: productsTable.maxQuantity,
       categoryId: productsTable.categoryId,
     }).from(productsTable).where(eq(productsTable.id, productId)),
-    db.select({ cnt: count() })
-      .from(productStocksTable)
+    db.select({ c: count() }).from(productStocksTable)
       .where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available"))),
   ]);
-  const productWithStock = product ? { ...product, stockCount: Number(stockRow?.cnt ?? 0) } : undefined;
+  const product = rawProduct ? { ...rawProduct, stockCount: Number(stockRow?.c ?? 0) } : undefined;
 
   const strings = await tMany([
     "prod.not_found", "btn.home", "prod.in_stock", "prod.out_of_stock",
@@ -873,36 +866,36 @@ async function showProductDetail(chatId: number | string, productId: number, edi
   ], lang);
   const locale = lang === "en" ? "en-US" : "vi-VN";
 
-  if (!productWithStock) {
+  if (!product) {
     await renderView(chatId, editMessageId, strings["prod.not_found"], {
       reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
     });
     return;
   }
 
-  const categoryId = productWithStock.categoryId ?? undefined;
+  const categoryId = product.categoryId;
 
-  const priceFormatted = parseFloat(productWithStock.price).toLocaleString(locale);
-  const originalFormatted = productWithStock.originalPrice ? `<s>${parseFloat(productWithStock.originalPrice).toLocaleString(locale)}đ</s> ` : "";
-  const outOfStock = productWithStock.stockCount === 0;
+  const priceFormatted = parseFloat(product.price).toLocaleString(locale);
+  const originalFormatted = product.originalPrice ? `<s>${parseFloat(product.originalPrice).toLocaleString(locale)}đ</s> ` : "";
+  const outOfStock = product.stockCount === 0;
   const stockText = outOfStock
     ? strings["prod.out_of_stock"]
-    : `${strings["prod.in_stock"]} (${productWithStock.stockCount})`;
+    : `${strings["prod.in_stock"]} (${product.stockCount})`;
 
   // Effective max is capped by actual available stock so customers never see
   // a quantity button that will be rejected at order time.
-  const minQ = productWithStock.minQuantity;
-  const maxQ = outOfStock ? 0 : Math.min(productWithStock.maxQuantity, productWithStock.stockCount);
+  const minQ = product.minQuantity;
+  const maxQ = outOfStock ? 0 : Math.min(product.maxQuantity, product.stockCount);
   const qtyDisplay = outOfStock ? "0" : `${minQ} - ${maxQ}`;
 
-  let msg = `📦 <b>${productWithStock.name}</b>\n`;
-  if (productWithStock.description) msg += `\n${productWithStock.description}\n`;
+  let msg = `📦 <b>${product.name}</b>\n`;
+  if (product.description) msg += `\n${product.description}\n`;
   msg += `\n${strings["prod.price"]} ${originalFormatted}<b>${priceFormatted}đ</b>`;
   msg += `\n${strings["prod.stock"]} ${stockText}`;
   msg += `\n${strings["prod.qty_range"]} ${qtyDisplay}`;
 
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
-  if (!outOfStock && productWithStock.stockCount >= minQ) {
+  if (!outOfStock && product.stockCount >= minQ) {
     // Show purchase actions whenever there's at least enough stock for the
     // minimum quantity.
     const row: Array<{ text: string; callback_data: string }> = [];
@@ -947,7 +940,7 @@ async function findRecentPromotionForCustomer(customerId: number): Promise<{ id:
   })
     .from(ordersTable)
     .innerJoin(promotionsTable, eq(promotionsTable.id, ordersTable.promotionId))
-    .where(sqlOp`${ordersTable.customerId} = ${customerId} AND ${ordersTable.promotionId} IS NOT NULL AND ${ordersTable.status} IN ('paid','delivered') AND ${ordersTable.createdAt} >= ${since}`)
+    .where(and(eq(ordersTable.customerId, customerId), isNotNull(ordersTable.promotionId), inArray(ordersTable.status, ["paid", "delivered"]), gte(ordersTable.createdAt, since)))
     .orderBy(desc(ordersTable.createdAt))
     .limit(1);
   if (!row || !row.code) return null;
@@ -955,7 +948,6 @@ async function findRecentPromotionForCustomer(customerId: number): Promise<{ id:
 }
 
 async function promptForPromoCode(chatId: number | string, customerId: number, productId: number, quantity: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  const { sql, count } = await import("drizzle-orm");
   const [product] = await db.select({
     id: productsTable.id,
     name: productsTable.name,
@@ -976,7 +968,7 @@ async function promptForPromoCode(chatId: number | string, customerId: number, p
     });
     return;
   }
-  const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
+  const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available")));
   const stockCount = Number(stockRow?.c ?? 0);
   if (quantity < product.minQuantity || quantity > product.maxQuantity) {
     const msg = strings["order.invalid_qty"]
@@ -1051,7 +1043,6 @@ async function showOrderConfirmScreen(
   appliedPromo: { id: number; code: string; discountAmount: number } | null,
   editMessageId?: number,
 ): Promise<void> {
-  const { sql, count } = await import("drizzle-orm");
   const [product] = await db.select({
     id: productsTable.id,
     name: productsTable.name,
@@ -1068,7 +1059,7 @@ async function showOrderConfirmScreen(
   }
 
   const [stockRow] = await db.select({ c: count() }).from(productStocksTable)
-    .where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
+    .where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available")));
   const stockCount = Number(stockRow?.c ?? 0);
 
   if (quantity < product.minQuantity || quantity > product.maxQuantity) {
@@ -1133,7 +1124,6 @@ async function showOrderConfirmScreen(
 }
 
 async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null, lang: Lang = "vi"): Promise<void> {
-  const { sql, count } = await import("drizzle-orm");
   const [product] = await db.select({
     id: productsTable.id,
     name: productsTable.name,
@@ -1158,7 +1148,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     await sendMessage(chatId, strings["prod.not_found"]);
     return;
   }
-  const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
+  const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available")));
   const stockCount = Number(stockRow?.c ?? 0);
 
   if (quantity < product.minQuantity || quantity > product.maxQuantity) {
@@ -2047,9 +2037,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           // Customer typed a promo code while on the confirm screen
           updateAwaitingQuantity(chatId, { awaitingPromoEntry: false });
           const qty = entry.quantity!;
-          const { sql, count } = await import("drizzle-orm");
           const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, entry.productId));
-          const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${entry.productId} AND ${productStocksTable.status} = 'available'`);
+          const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, entry.productId), eq(productStocksTable.status, "available")));
           const stockCount = Number(stockRow?.c ?? 0);
           if (!product) {
             clearAwaitingQuantity(chatId);
@@ -2086,13 +2075,12 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           if (!pending) {
             await sendMessage(chatId, await t("qty.session_expired_qty", lang));
           } else {
-            const { sql, count } = await import("drizzle-orm");
             const [product] = await db.select({
               name: productsTable.name,
               minQuantity: productsTable.minQuantity,
               maxQuantity: productsTable.maxQuantity,
             }).from(productsTable).where(eq(productsTable.id, pending.productId));
-            const [stockRow2] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${pending.productId} AND ${productStocksTable.status} = 'available'`);
+            const [stockRow2] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, pending.productId), eq(productStocksTable.status, "available")));
             const availableStock = Number(stockRow2?.c ?? 0);
             if (!product) {
               await sendMessage(chatId, await t("prod.not_found", lang));
@@ -2299,7 +2287,6 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         }
       } else if (data.startsWith("qty_input_")) {
         const productId = parseInt(data.replace("qty_input_", ""), 10);
-        const { sql, count } = await import("drizzle-orm");
         const [product] = await db.select({
           name: productsTable.name,
           minQuantity: productsTable.minQuantity,
@@ -2317,7 +2304,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           // Gate only on having any stock at all — the user may type up to the
           // configured maxQuantity. Stock is re-validated when they confirm the
           // order, so an over-stock pick produces a clear error there.
-          const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
+          const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available")));
           const stockCount = Number(stockRow?.c ?? 0);
           if (stockCount < product.minQuantity) {
             await renderView(chatId, messageId, qtyStrings["prod.out_of_stock_req"].replace("{name}", product.name), {
@@ -2369,9 +2356,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         const quantity = parseInt(parts[2], 10);
         await clearAwaitingPromo(chatId);
 
-        const { sql, count } = await import("drizzle-orm");
         const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, productId));
-        const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
+        const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available")));
         const stockCount = Number(stockRow?.c ?? 0);
         if (!product || stockCount < quantity) {
           await sendMessage(chatId, await t("promo.reuse_oos", lang));
@@ -2423,7 +2409,6 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
         let promotion: ValidPromotion | null = null;
         if (promotionId) {
-          const { sql, count } = await import("drizzle-orm");
           const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, productId));
           const [promo] = await db.select({ code: promotionsTable.code }).from(promotionsTable).where(eq(promotionsTable.id, promotionId));
           if (product && promo?.code) {
