@@ -1,5 +1,5 @@
 import { db, botLogsTable, customersTable, ordersTable, orderItemsTable, productStocksTable, transactionsTable, productsTable, promotionsTable, botPendingActionsTable } from "@workspace/db";
-import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count, isNotNull } from "drizzle-orm";
+import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count, sum, isNotNull } from "drizzle-orm";
 import { logger } from "./logger";
 import { t, tMany, type Lang } from "./i18n";
 
@@ -680,13 +680,20 @@ async function showSettingsMenu(chatId: number | string, editMessageId?: number,
 
 async function showAccountInfo(chatId: number | string, customer: typeof customersTable.$inferSelect, lang: Lang = "vi"): Promise<void> {
   const balance = parseFloat(customer.balance ?? "0");
-  const [orderStats] = await db.select({
-    totalOrders: sqlOp<number>`COUNT(*)::int`,
-    totalSpent: sqlOp<number>`COALESCE(SUM(CASE WHEN status IN ('paid','delivered') THEN total_amount::numeric ELSE 0 END), 0)::numeric`,
-  }).from(ordersTable).where(eq(ordersTable.customerId, customer.id));
+  const [countResult] = await db
+    .select({ total: count() })
+    .from(ordersTable)
+    .where(eq(ordersTable.customerId, customer.id));
+  const [spentResult] = await db
+    .select({ total: sum(ordersTable.totalAmount) })
+    .from(ordersTable)
+    .where(and(
+      eq(ordersTable.customerId, customer.id),
+      inArray(ordersTable.status, ["paid", "delivered"])
+    ));
 
-  const totalOrders = Number(orderStats?.totalOrders ?? 0);
-  const totalSpent = Number(orderStats?.totalSpent ?? 0);
+  const totalOrders = Number(countResult?.total ?? 0);
+  const totalSpent = Number(spentResult?.total ?? 0);
   const noUsername = await t("account.no_username", lang);
   const username = customer.username ? `@${customer.username}` : noUsername;
 
