@@ -1694,18 +1694,23 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
   const goodsName = item?.productName ?? "Order";
   const goodsId = String(item?.productId ?? orderId);
 
+  // Build the merchantTradeNo used in the Binance API call — store exactly this value
+  // in paymentReference so webhook fallback matching works without prepayId
+  const merchantTradeNo = `${binanceCfg.merchantTradeNoPrefix}${order.orderCode}`;
+
   try {
     const prepayResult = await createBinancePayOrder({
       apiKey: binanceCfg.apiKey,
       apiSecret: binanceCfg.apiSecret,
-      merchantTradeNo: `${binanceCfg.merchantTradeNoPrefix}${order.orderCode}`,
+      merchantTradeNo,
       orderAmount: usdtAmount,
       goodsName,
       goodsId,
     });
 
-    // Store VND in amount (accounting currency), USDT with full precision in cryptoAmount
-    // Include timestamp so each attempt (including QR refresh) gets a unique transactionCode
+    // Store VND in amount (accounting currency), USDT with full precision in cryptoAmount.
+    // transactionCode includes timestamp to stay unique across QR refresh attempts.
+    // paymentReference = exact merchantTradeNo so webhook can match without prepayId.
     const binanceTxCode = `BP${order.orderCode}_${Date.now()}`;
     await db.insert(transactionsTable).values({
       transactionCode: binanceTxCode,
@@ -1716,7 +1721,7 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
       cryptoAmount: usdtAmount,
       provider: "binance",
       binancePrepayId: prepayResult.prepayId,
-      paymentReference: order.orderCode,
+      paymentReference: merchantTradeNo,
     });
 
     const qrContent = prepayResult.qrcodeLink ?? null;

@@ -5,7 +5,7 @@ import { logger } from "../lib/logger";
 import { requireAuth } from "../middlewares/auth";
 import { validateBody } from "../middlewares/validate";
 import { SavePaymentConfigBody } from "@workspace/api-zod";
-import { desc, eq, and } from "drizzle-orm";
+import { desc, eq, and, or } from "drizzle-orm";
 import type z from "zod";
 
 const router: IRouter = Router();
@@ -226,15 +226,23 @@ router.post("/payments/binance/webhook", async (req: Request, res: Response): Pr
       return;
     }
 
-    // Find the pending transaction — match by binancePrepayId or paymentReference
+    // Find the pending Binance transaction — try prepayId first (most reliable),
+    // then fall back to merchantTradeNo (now stored as the exact prefixed value).
+    // Using OR when both are present ensures we match even if one key is missing.
+    const conditions = [];
+    if (prepayId) conditions.push(eq(transactionsTable.binancePrepayId, prepayId));
+    if (merchantTradeNo) conditions.push(eq(transactionsTable.paymentReference, merchantTradeNo));
+
     const [transaction] = await db
       .select()
       .from(transactionsTable)
       .where(
-        prepayId
-          ? eq(transactionsTable.binancePrepayId, prepayId)
-          : eq(transactionsTable.paymentReference, merchantTradeNo!),
-      );
+        conditions.length === 1
+          ? conditions[0]!
+          : or(...conditions),
+      )
+      .orderBy(transactionsTable.createdAt)
+      .limit(1);
 
     if (!transaction) {
       logger.warn({ merchantTradeNo, prepayId }, "Binance webhook: no matching transaction found");
