@@ -280,12 +280,11 @@ const BUTTON_ACTION: Record<string, string> = {
   "💬 Hỗ trợ": "support",
   "ℹ️ Thông tin": "info",
   "⚙️ Cài đặt": "settings",
-  // en
+  // en (Voucher text is identical in both languages — already mapped above)
   "🛒 Shop": "shop",
   "📋 Products": "shop",
   "👤 Account": "account",
   "💰 Top Up": "topup",
-  "🎟️ Voucher": "voucher",
   "🛡️ Warranty": "warranty",
   "💬 Support": "support",
   "ℹ️ Info": "info",
@@ -803,7 +802,7 @@ async function showProductDetail(chatId: number | string, productId: number, edi
   const strings = await tMany([
     "prod.not_found", "btn.home", "prod.in_stock", "prod.out_of_stock",
     "prod.price", "prod.stock", "prod.qty_range", "prod.max_qty",
-    "prod.enter_qty", "prod.stock_request", "btn.back"
+    "prod.enter_qty", "prod.stock_request", "btn.back", "btn.browse_other"
   ], lang);
   const locale = lang === "en" ? "en-US" : "vi-VN";
 
@@ -821,26 +820,24 @@ async function showProductDetail(chatId: number | string, productId: number, edi
 
   const priceFormatted = parseFloat(product.price).toLocaleString(locale);
   const originalFormatted = product.originalPrice ? `<s>${parseFloat(product.originalPrice).toLocaleString(locale)}đ</s> ` : "";
-  const stockText = product.stockCount > 0
-    ? `${strings["prod.in_stock"]} (${product.stockCount})`
-    : strings["prod.out_of_stock"];
+  const outOfStock = product.stockCount === 0;
+  const stockText = outOfStock
+    ? strings["prod.out_of_stock"]
+    : `${strings["prod.in_stock"]} (${product.stockCount})`;
+  const qtyDisplay = outOfStock ? "0" : `${product.minQuantity} - ${product.maxQuantity}`;
 
   let msg = `📦 <b>${product.name}</b>\n`;
   if (product.description) msg += `\n${product.description}\n`;
   msg += `\n${strings["prod.price"]} ${originalFormatted}<b>${priceFormatted}đ</b>`;
   msg += `\n${strings["prod.stock"]} ${stockText}`;
-  msg += `\n${strings["prod.qty_range"]} ${product.minQuantity} - ${product.maxQuantity}`;
+  msg += `\n${strings["prod.qty_range"]} ${qtyDisplay}`;
 
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
   const minQ = product.minQuantity;
   const maxQ = product.maxQuantity;
-  // Show purchase actions whenever there's at least enough stock for the
-  // minimum quantity. The "max" and custom-input options always reflect the
-  // configured maxQuantity (not the live stock) — a customer who tries to buy
-  // more than available will get a clear "not enough stock" error at order
-  // time. Clamping by stock here was confusing: the header showed "Số lượng:
-  // 1 - 3" but the keyboard only offered "1" when stock was 1.
-  if (product.stockCount >= minQ) {
+  if (!outOfStock && product.stockCount >= minQ) {
+    // Show purchase actions whenever there's at least enough stock for the
+    // minimum quantity.
     const row: Array<{ text: string; callback_data: string }> = [];
     row.push({ text: `${minQ}`, callback_data: `qty_${productId}_${minQ}` });
     if (maxQ > minQ) {
@@ -859,7 +856,12 @@ async function showProductDetail(chatId: number | string, productId: number, edi
   } else {
     backRow.push({ text: strings["btn.back"], callback_data: "browse_products" });
   }
-  backRow.push({ text: strings["btn.home"], callback_data: "main_menu" });
+  // When out of stock, replace the "Home" button with "Browse other products"
+  // so customers can immediately switch to something available.
+  backRow.push(outOfStock
+    ? { text: strings["btn.browse_other"], callback_data: "browse_products" }
+    : { text: strings["btn.home"], callback_data: "main_menu" }
+  );
   keyboard.push(backRow);
 
   await renderView(chatId, editMessageId, msg, { reply_markup: { inline_keyboard: keyboard } });

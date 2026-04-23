@@ -18,7 +18,7 @@ const UpdateI18nStringBody = z.object({
 });
 
 router.patch("/i18n/strings/:key", requireAuth, async (req, res): Promise<void> => {
-  const key = req.params["key"];
+  const key = String(req.params["key"]);
   const parseResult = UpdateI18nStringBody.safeParse(req.body);
   if (!parseResult.success) {
     res.status(400).json({ error: "Invalid body", issues: parseResult.error.issues });

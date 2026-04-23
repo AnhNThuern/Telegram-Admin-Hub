@@ -141,7 +141,8 @@ export const DEFAULT_STRINGS: Array<{ key: string; vi: string; en: string }> = [
   { key: "prod.none", vi: "❌ Danh mục này chưa có sản phẩm.", en: "❌ No products in this category." },
   { key: "prod.not_found", vi: "❌ Sản phẩm không tồn tại.", en: "❌ Product not found." },
   { key: "prod.in_stock", vi: "✅ Còn hàng", en: "✅ In Stock" },
-  { key: "prod.out_of_stock", vi: "❌ Hết hàng", en: "❌ Out of Stock" },
+  { key: "prod.out_of_stock", vi: "❌ (Hết hàng)", en: "❌ (Out of Stock)" }, // parentheses distinguish it from the prod.none error style
+  { key: "btn.browse_other", vi: "🛍️ Mua hàng khác", en: "🛍️ Browse Other Products" },
   { key: "prod.price_label", vi: "💰 Giá:", en: "💰 Price:" },
   { key: "prod.price", vi: "💰 Giá:", en: "💰 Price:" },
   { key: "prod.stock_label", vi: "📊 Tồn kho:", en: "📊 Stock:" },
