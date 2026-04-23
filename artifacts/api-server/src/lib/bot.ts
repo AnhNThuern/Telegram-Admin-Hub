@@ -928,6 +928,103 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
   }
 }
 
+/**
+ * Atomically pay with wallet balance AND claim + deliver stock in one DB transaction.
+ * This prevents the "charged but no goods" scenario: if stock is unavailable, the
+ * balance is never debited. Returns the claimed stock rows on success so the caller
+ * can send the delivery message after the transaction commits.
+ */
+async function payWithBalanceAndDeliver(
+  orderId: number,
+  customerId: number,
+): Promise<
+  | { outcome: "success"; stocks: Array<{ id: number; content: string }>; order: typeof ordersTable.$inferSelect; item: typeof orderItemsTable.$inferSelect }
+  | { outcome: "out_of_stock" | "insufficient_balance" | "error" }
+> {
+  const [order] = await db.select().from(ordersTable).where(
+    and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
+  );
+  if (!order || order.status !== "pending") return { outcome: "error" };
+
+  const [item] = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
+  if (!item) return { outcome: "error" };
+
+  const totalAmount = parseFloat(order.totalAmount).toFixed(2);
+  const OUT_OF_STOCK = "OUT_OF_STOCK_WALLET_SENTINEL";
+  const INSUFFICIENT = "INSUFFICIENT_BALANCE_WALLET_SENTINEL";
+  let claimedStocks: Array<{ id: number; content: string }> = [];
+
+  try {
+    await db.transaction(async (tx) => {
+      // Step 1: Lock and claim stock rows atomically. SKIP LOCKED means we won't
+      // wait on rows held by another concurrent transaction — if we can't get enough
+      // unlocked rows, stock is effectively unavailable for this buyer right now.
+      const result = await tx.execute(
+        sqlOp`SELECT id, content FROM product_stocks WHERE product_id = ${item.productId} AND status = 'available' ORDER BY created_at LIMIT ${item.quantity} FOR UPDATE SKIP LOCKED`
+      );
+      const rows = result.rows as Array<{ id: number; content: string }>;
+      if (rows.length < item.quantity) throw new Error(OUT_OF_STOCK);
+      claimedStocks = rows;
+
+      // Step 2: Claim the order slot (pending → paid), prevents double payment
+      const claimed = await tx.update(ordersTable)
+        .set({ status: "paid", paidAt: new Date() })
+        .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "pending")))
+        .returning({ id: ordersTable.id });
+      if (claimed.length === 0) throw new Error("ORDER_ALREADY_CLAIMED");
+
+      // Step 3: Deduct wallet balance — rolls back everything if insufficient
+      const deducted = await tx.update(customersTable)
+        .set({ balance: sqlOp`balance - ${totalAmount}::numeric` })
+        .where(and(
+          eq(customersTable.id, customerId),
+          sqlOp`balance >= ${totalAmount}::numeric`
+        ))
+        .returning({ id: customersTable.id });
+      if (deducted.length === 0) throw new Error(INSUFFICIENT);
+
+      // Step 4: Mark the claimed stock rows as delivered (still in the same transaction)
+      await tx.update(productStocksTable)
+        .set({ status: "delivered", orderId })
+        .where(and(
+          inArray(productStocksTable.id, rows.map(r => r.id)),
+          eq(productStocksTable.status, "available")
+        ));
+
+      // Step 5: Record the wallet transaction
+      await tx.insert(transactionsTable).values({
+        transactionCode: `TXN-WALLET-${Date.now()}-${orderId}`,
+        type: "balance_payment",
+        orderId,
+        customerId,
+        amount: order.totalAmount,
+        status: "confirmed",
+        provider: "wallet",
+        confirmedAt: new Date(),
+      });
+
+      // Step 6: Mark order as delivered
+      await tx.update(ordersTable)
+        .set({ status: "delivered", deliveredAt: new Date() })
+        .where(eq(ordersTable.id, orderId));
+    });
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg === OUT_OF_STOCK) return { outcome: "out_of_stock" };
+    if (msg === INSUFFICIENT) return { outcome: "insufficient_balance" };
+    if (msg === "ORDER_ALREADY_CLAIMED") return { outcome: "error" };
+    throw err;
+  }
+
+  // Update customer spend stats outside the transaction (non-critical, best-effort)
+  await db.update(customersTable)
+    .set({ totalSpent: sqlOp`total_spent + ${parseFloat(order.totalAmount)}` })
+    .where(eq(customersTable.id, customerId))
+    .catch(err => logger.warn({ err, orderId }, "Failed to update totalSpent after wallet delivery"));
+
+  return { outcome: "success", stocks: claimedStocks, order, item };
+}
+
 export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } = {}): Promise<boolean> {
   const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId));
   if (!order || (order.status !== "paid" && order.status !== "needs_manual_action")) return false;
@@ -1530,15 +1627,65 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         }
       } else if (data.startsWith("pay_with_balance_")) {
         const orderId = parseInt(data.replace("pay_with_balance_", ""), 10);
-        const { payWithBalance } = await import("./payments");
-        const result = await payWithBalance(orderId, customer.id);
-        if (result === "success") {
-          await logBotAction("wallet_payment", String(chatId), customer.id, `Wallet payment for order ${orderId}`, { orderId });
-          const delivered = await deliverOrder(orderId);
-          if (!delivered) {
-            await sendMessage(chatId, `✅ Đã thanh toán bằng số dư ví! Đơn hàng đang được xử lý — chúng tôi sẽ giao hàng ngay khi có hàng.`);
+        // Use the combined atomic function: stock claim + balance debit + delivery
+        // happen in one transaction so the customer is never charged for goods that
+        // are no longer available (race-condition safe).
+        const walletResult = await payWithBalanceAndDeliver(orderId, customer.id);
+
+        if (walletResult.outcome === "success") {
+          const { stocks, order, item } = walletResult;
+          await logBotAction("wallet_payment_delivered", String(chatId), customer.id,
+            `Wallet payment+delivery for order ${order.orderCode}`,
+            { orderId, productId: item.productId, quantity: item.quantity }
+          );
+
+          // Build and send the delivery message
+          const orderDiscount = parseFloat(order.discountAmount ?? "0");
+          let deliveryMsg = `🎉 <b>Đơn hàng ${order.orderCode} đã giao thành công!</b>\n\n`;
+          deliveryMsg += `📦 ${item.productName} x${item.quantity}\n`;
+
+          if (orderDiscount > 0) {
+            let promoCode: string | null = null;
+            if (order.promotionId) {
+              const [promo] = await db.select({ code: promotionsTable.code })
+                .from(promotionsTable).where(eq(promotionsTable.id, order.promotionId));
+              promoCode = promo?.code ?? null;
+            }
+            const subtotal = parseFloat(order.totalAmount) + orderDiscount;
+            deliveryMsg += `🧾 Tạm tính: <s>${subtotal.toLocaleString("vi-VN")}đ</s>\n`;
+            deliveryMsg += promoCode
+              ? `🎟️ Mã giảm giá: <code>${promoCode}</code> (−${orderDiscount.toLocaleString("vi-VN")}đ)\n`
+              : `🎟️ Giảm giá: −${orderDiscount.toLocaleString("vi-VN")}đ\n`;
+            deliveryMsg += `💰 Đã thanh toán: <b>${parseFloat(order.totalAmount).toLocaleString("vi-VN")}đ</b> (ví)\n`;
+          } else {
+            deliveryMsg += `💰 Đã thanh toán: <b>${parseFloat(order.totalAmount).toLocaleString("vi-VN")}đ</b> (ví)\n`;
           }
-        } else if (result === "insufficient") {
+
+          deliveryMsg += `\n<b>Thông tin sản phẩm:</b>\n`;
+          stocks.forEach((s, i) => { deliveryMsg += `${i + 1}. <code>${s.content}</code>\n`; });
+          deliveryMsg += `\n✅ Cảm ơn bạn đã mua hàng!`;
+
+          await sendMessage(chatId, deliveryMsg);
+
+          // Update customer stats (best-effort, already handled inside payWithBalanceAndDeliver)
+          await logBotAction("delivery_sent", String(chatId), customer.id,
+            `Delivered order ${order.orderCode} via wallet`, { orderId });
+
+        } else if (walletResult.outcome === "out_of_stock") {
+          // Cancel the order — no money was taken
+          await db.update(ordersTable)
+            .set({ status: "cancelled" })
+            .where(and(eq(ordersTable.id, orderId), eq(ordersTable.status, "pending")));
+          await logBotAction("wallet_payment_cancelled_no_stock", String(chatId), customer.id,
+            `Wallet payment cancelled — out of stock for order ${orderId}`, { orderId }, "warn");
+          await sendMessage(chatId, "❌ Sản phẩm đã hết hàng. Đơn hàng đã bị hủy và bạn không bị tính phí.", {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "🏠 Trang chủ", callback_data: "main_menu" }, { text: "🛒 Xem sản phẩm khác", callback_data: "browse_products" }],
+              ],
+            },
+          });
+        } else if (walletResult.outcome === "insufficient_balance") {
           await sendMessage(chatId, "❌ Số dư ví không đủ. Vui lòng nạp thêm hoặc chuyển khoản ngân hàng.");
         } else {
           await sendMessage(chatId, "❌ Đơn hàng không còn hợp lệ để thanh toán bằng ví.");
