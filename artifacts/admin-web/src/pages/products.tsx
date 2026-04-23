@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Box, Users } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Box, Users, ArrowDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -416,7 +416,12 @@ export default function Products() {
                   <TableHead>Danh mục</TableHead>
                   <TableHead>Giá bán</TableHead>
                   <TableHead>Tồn kho</TableHead>
-                  <TableHead>Yêu cầu hàng mới</TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1">
+                      Yêu cầu hàng mới
+                      {orderBy === "stockRequestCount" && <ArrowDown className="h-3.5 w-3.5 text-primary" data-testid="sort-icon-stock-request" />}
+                    </span>
+                  </TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
                 </TableRow>
