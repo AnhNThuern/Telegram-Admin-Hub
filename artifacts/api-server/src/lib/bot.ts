@@ -2294,13 +2294,11 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             await clearAwaitingPromo(chatId);
             setAwaitingQuantity(chatId, productId);
             await logBotAction("quantity_prompt", String(chatId), customer.id, `Quantity prompt for product ${productId}`, { productId, minQuantity: product.minQuantity, maxQuantity: product.maxQuantity, stockCount });
-            const stockHint = stockCount < product.maxQuantity
-              ? qtyStrings["qty.stock_hint"].replace("{n}", String(stockCount))
-              : "";
+            const effectiveMax = Math.min(product.maxQuantity, stockCount);
             const promptMsg = qtyStrings["qty.prompt"]
               .replace("{name}", product.name)
               .replace("{min}", String(product.minQuantity))
-              .replace("{max}", String(product.maxQuantity)) + stockHint;
+              .replace("{max}", String(effectiveMax));
             await renderView(
               chatId,
               messageId,
