@@ -2100,7 +2100,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           // Customer typed a promo code while on the confirm screen
           updateAwaitingQuantity(chatId, { awaitingPromoEntry: false });
           const qty = entry.quantity!;
-          const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, entry.productId));
+          const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(and(eq(productsTable.id, entry.productId), eq(productsTable.isActive, true)));
           const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, entry.productId), eq(productStocksTable.status, "available")));
           const stockCount = Number(stockRow?.c ?? 0);
           if (!product) {
@@ -2142,7 +2142,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               name: productsTable.name,
               minQuantity: productsTable.minQuantity,
               maxQuantity: productsTable.maxQuantity,
-            }).from(productsTable).where(eq(productsTable.id, pending.productId));
+            }).from(productsTable).where(and(eq(productsTable.id, pending.productId), eq(productsTable.isActive, true)));
             const [stockRow2] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, pending.productId), eq(productStocksTable.status, "available")));
             const availableStock = Number(stockRow2?.c ?? 0);
             if (!product) {
