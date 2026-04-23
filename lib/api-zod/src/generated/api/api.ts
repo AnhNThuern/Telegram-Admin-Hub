@@ -92,11 +92,6 @@ export const ListCategoriesResponse = zod.object({
       name: zod.string(),
       icon: zod.string().nullish(),
       isActive: zod.boolean(),
-      totalStock: zod
-        .number()
-        .describe(
-          "Total available stock items across all active products in this category",
-        ),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     }),
@@ -124,11 +119,6 @@ export const GetCategoryResponse = zod.object({
   name: zod.string(),
   icon: zod.string().nullish(),
   isActive: zod.boolean(),
-  totalStock: zod
-    .number()
-    .describe(
-      "Total available stock items across all active products in this category",
-    ),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -151,11 +141,6 @@ export const UpdateCategoryResponse = zod.object({
   name: zod.string(),
   icon: zod.string().nullish(),
   isActive: zod.boolean(),
-  totalStock: zod
-    .number()
-    .describe(
-      "Total available stock items across all active products in this category",
-    ),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
 });
@@ -253,11 +238,6 @@ export const GetProductResponse = zod.object({
       name: zod.string(),
       icon: zod.string().nullish(),
       isActive: zod.boolean(),
-      totalStock: zod
-        .number()
-        .describe(
-          "Total available stock items across all active products in this category",
-        ),
       createdAt: zod.coerce.date(),
       updatedAt: zod.coerce.date(),
     })

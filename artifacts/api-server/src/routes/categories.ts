@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, categoriesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateBody, validateParams } from "../middlewares/validate";
@@ -15,21 +15,7 @@ import type z from "zod";
 const router: IRouter = Router();
 
 router.get("/categories", requireAuth, async (_req, res): Promise<void> => {
-  const data = await db.select({
-    id: categoriesTable.id,
-    name: categoriesTable.name,
-    icon: categoriesTable.icon,
-    isActive: categoriesTable.isActive,
-    createdAt: categoriesTable.createdAt,
-    updatedAt: categoriesTable.updatedAt,
-    totalStock: sql<number>`(
-      SELECT COUNT(ps.id)::int FROM product_stocks ps
-      JOIN products p ON ps.product_id = p.id
-      WHERE p.category_id = ${categoriesTable.id}
-        AND p.is_active = true
-        AND ps.status = 'available'
-    )`,
-  }).from(categoriesTable).orderBy(categoriesTable.name);
+  const data = await db.select().from(categoriesTable).orderBy(categoriesTable.name);
   res.json({ data });
 });
 

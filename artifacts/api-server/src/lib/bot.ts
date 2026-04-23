@@ -481,9 +481,9 @@ export async function broadcastProductNotification(
   productId: number,
   productName: string,
   productPrice: string,
-): Promise<{ sent: number; total: number; botConfigured: boolean; notifiedChatIds: string[] }> {
+): Promise<{ sent: number; total: number; botConfigured: boolean }> {
   const token = await getBotToken();
-  if (!token) return { sent: 0, total: 0, botConfigured: false, notifiedChatIds: [] };
+  if (!token) return { sent: 0, total: 0, botConfigured: false };
 
   const customers = await db
     .select({ chatId: customersTable.chatId })
@@ -506,17 +506,13 @@ export async function broadcastProductNotification(
 
   let sent = 0;
   const total = customers.length;
-  const notifiedChatIds: string[] = [];
 
   for (let i = 0; i < customers.length; i += BATCH_SIZE) {
     const batch = customers.slice(i, i + BATCH_SIZE);
     await Promise.all(
       batch.map(async (c) => {
         const ok = await sendMessage(c.chatId, text, { reply_markup: inlineKeyboard });
-        if (ok) {
-          sent++;
-          notifiedChatIds.push(c.chatId);
-        }
+        if (ok) sent++;
       }),
     );
     if (i + BATCH_SIZE < customers.length) {
@@ -532,7 +528,7 @@ export async function broadcastProductNotification(
     { productId, productName, sent, total },
   );
 
-  return { sent, total, botConfigured: true, notifiedChatIds };
+  return { sent, total, botConfigured: true };
 }
 
 async function upsertCustomer(from: { id: number; first_name?: string; last_name?: string; username?: string }): Promise<{ customer: typeof customersTable.$inferSelect; isNew: boolean }> {
@@ -762,20 +758,8 @@ async function showActivePromotions(chatId: number | string, lang: Lang = "vi"):
 }
 
 async function showCategories(chatId: number | string, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  const { categoriesTable, productsTable, productStocksTable } = await import("@workspace/db");
-  const { sql } = await import("drizzle-orm");
-  const categories = await db.select({
-    id: categoriesTable.id,
-    name: categoriesTable.name,
-    icon: categoriesTable.icon,
-    totalStock: sql<number>`(
-      SELECT COUNT(ps.id)::int FROM product_stocks ps
-      JOIN products p ON ps.product_id = p.id
-      WHERE p.category_id = ${categoriesTable.id}
-        AND p.is_active = true
-        AND ps.status = 'available'
-    )`,
-  }).from(categoriesTable).where(eq(categoriesTable.isActive, true));
+  const { categoriesTable } = await import("@workspace/db");
+  const categories = await db.select().from(categoriesTable).where(eq(categoriesTable.isActive, true));
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
     t("cat.none", lang),
     t("btn.home", lang),
@@ -787,10 +771,7 @@ async function showCategories(chatId: number | string, editMessageId?: number, l
     });
     return;
   }
-  const keyboard = categories.map(c => {
-    const stockLabel = c.totalStock > 0 ? ` (${c.totalStock})` : " ❌";
-    return [{ text: `${c.icon ?? "📁"} ${c.name}${stockLabel}`, callback_data: `cat_${c.id}` }];
-  });
+  const keyboard = categories.map(c => [{ text: `${c.icon ?? "📁"} ${c.name}`, callback_data: `cat_${c.id}` }]);
   keyboard.push([{ text: await t("btn.back", lang), callback_data: "main_menu" }]);
   await renderView(chatId, editMessageId, titleLabel, { reply_markup: { inline_keyboard: keyboard } });
 }
@@ -818,14 +799,10 @@ async function showProducts(chatId: number | string, categoryId: number, editMes
     });
     return;
   }
-  const keyboard = products.map(p => {
-    const priceStr = parseFloat(p.price).toLocaleString(locale);
-    const stockBadge = p.stockCount > 0 ? `✅ (${p.stockCount})` : "🔔 Hết hàng";
-    return [{
-      text: `${p.productIcon ?? "📦"} ${p.name} - ${priceStr}đ  ${stockBadge}`,
-      callback_data: `prod_${p.id}`,
-    }];
-  });
+  const keyboard = products.map(p => [{
+    text: `${p.productIcon ?? "📦"} ${p.name} - ${parseFloat(p.price).toLocaleString(locale)}đ ${p.stockCount > 0 ? "✅" : "❌"}`,
+    callback_data: `prod_${p.id}`,
+  }]);
   keyboard.push([{ text: backLabel, callback_data: "browse_products" }]);
   await renderView(chatId, editMessageId, titleLabel, { reply_markup: { inline_keyboard: keyboard } });
 }
@@ -2294,11 +2271,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             await clearAwaitingPromo(chatId);
             setAwaitingQuantity(chatId, productId);
             await logBotAction("quantity_prompt", String(chatId), customer.id, `Quantity prompt for product ${productId}`, { productId, minQuantity: product.minQuantity, maxQuantity: product.maxQuantity, stockCount });
-            const effectiveMax = Math.min(product.maxQuantity, stockCount);
+            const stockHint = stockCount < product.maxQuantity
+              ? qtyStrings["qty.stock_hint"].replace("{n}", String(stockCount))
+              : "";
             const promptMsg = qtyStrings["qty.prompt"]
               .replace("{name}", product.name)
               .replace("{min}", String(product.minQuantity))
-              .replace("{max}", String(effectiveMax));
+              .replace("{max}", String(product.maxQuantity)) + stockHint;
             await renderView(
               chatId,
               messageId,

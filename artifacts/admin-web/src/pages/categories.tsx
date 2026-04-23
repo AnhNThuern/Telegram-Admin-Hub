@@ -209,7 +209,6 @@ export default function Categories() {
                   <TableHead>ID</TableHead>
                   <TableHead>Icon</TableHead>
                   <TableHead>Tên danh mục</TableHead>
-                  <TableHead className="text-right">Tồn kho</TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
                 </TableRow>
@@ -222,11 +221,6 @@ export default function Categories() {
                       {category.icon || "📁"}
                     </TableCell>
                     <TableCell className="font-medium">{category.name}</TableCell>
-                    <TableCell className="text-right">
-                      <span className={`font-mono font-bold ${(category.totalStock ?? 0) === 0 ? "text-destructive" : (category.totalStock ?? 0) < 10 ? "text-amber-400" : "text-emerald-500"}`}>
-                        {category.totalStock ?? 0}
-                      </span>
-                    </TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${category.isActive ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"}`}>
                         {category.isActive ? "Đang hoạt động" : "Đã ẩn"}
@@ -246,7 +240,7 @@ export default function Categories() {
                 ))}
                 {categoryList?.data?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                       Chưa có danh mục nào.
                     </TableCell>
                   </TableRow>

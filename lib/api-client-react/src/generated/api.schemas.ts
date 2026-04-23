@@ -114,8 +114,6 @@ export interface Category {
   name: string;
   icon?: string | null;
   isActive: boolean;
-  /** Total available stock items across all active products in this category */
-  totalStock: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -585,16 +583,8 @@ export type ListProductsParams = {
   search?: string;
   categoryId?: number;
   isActive?: boolean;
-  orderBy?: ListProductsOrderBy;
+  orderBy?: 'createdAt' | 'stockRequestCount';
 };
-
-export type ListProductsOrderBy =
-  (typeof ListProductsOrderBy)[keyof typeof ListProductsOrderBy];
-
-export const ListProductsOrderBy = {
-  createdAt: "createdAt",
-  stockRequestCount: "stockRequestCount",
-} as const;
 
 export type ListProductStocksParams = {
   status?: string;
