@@ -62,7 +62,7 @@ router.get("/admin/restock-queue", requireAuth, async (_req, res): Promise<void>
     retryCount: o.retryCount,
     createdAt: o.createdAt,
     customer: o.customerId != null ? (customerMap.get(o.customerId) ?? null) : null,
-    items: itemsByOrder.get(o.id) ?? [],
+    items: (itemsByOrder.get(o.id) ?? []).map(({ id, productId, quantity, productName }) => ({ id, productId, quantity, productName })),
   }));
 
   res.json({ data });
