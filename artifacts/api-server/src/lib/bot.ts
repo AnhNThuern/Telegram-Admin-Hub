@@ -73,16 +73,30 @@ export async function cleanupExpiredBotPendingActions(): Promise<number> {
   return deleted.length;
 }
 
-// In-memory state for customers asked to type a custom quantity.
+// In-memory state for customers asked to type a custom quantity or promo code.
 interface AwaitingQuantity {
   productId: number;
   expiresAt: number;
+  quantity?: number;
+  awaitingPromoEntry?: boolean;
+  appliedPromo?: { id: number; code: string; discountAmount: number };
 }
 const awaitingQuantity = new Map<string, AwaitingQuantity>();
 const QUANTITY_PROMPT_TTL_MS = 10 * 60 * 1000;
 
 function setAwaitingQuantity(chatId: number | string, productId: number): void {
   awaitingQuantity.set(String(chatId), { productId, expiresAt: Date.now() + QUANTITY_PROMPT_TTL_MS });
+}
+function peekAwaitingQuantity(chatId: number | string): AwaitingQuantity | null {
+  const key = String(chatId);
+  const entry = awaitingQuantity.get(key);
+  if (!entry || entry.expiresAt < Date.now()) return null;
+  return entry;
+}
+function updateAwaitingQuantity(chatId: number | string, updates: Partial<Omit<AwaitingQuantity, "productId" | "expiresAt">>): void {
+  const key = String(chatId);
+  const entry = awaitingQuantity.get(key);
+  if (entry) awaitingQuantity.set(key, { ...entry, ...updates });
 }
 function takeAwaitingQuantity(chatId: number | string): AwaitingQuantity | null {
   const key = String(chatId);
@@ -822,6 +836,111 @@ async function promptForPromoCode(chatId: number | string, customerId: number, p
   });
 }
 
+/**
+ * Shows the order confirmation screen where the customer can optionally apply
+ * a promo code before placing the order. This replaces the old separate promo
+ * screen — promo entry is now inline within the quantity confirmation step.
+ */
+async function showOrderConfirmScreen(
+  chatId: number | string,
+  customerId: number,
+  productId: number,
+  quantity: number,
+  appliedPromo: { id: number; code: string; discountAmount: number } | null,
+  editMessageId?: number,
+): Promise<void> {
+  const { sql, count } = await import("drizzle-orm");
+  const [product] = await db.select({
+    id: productsTable.id,
+    name: productsTable.name,
+    price: productsTable.price,
+    minQuantity: productsTable.minQuantity,
+    maxQuantity: productsTable.maxQuantity,
+  }).from(productsTable).where(eq(productsTable.id, productId));
+
+  if (!product) {
+    await renderView(chatId, editMessageId, "❌ Sản phẩm không còn tồn tại.", {
+      reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] },
+    });
+    return;
+  }
+
+  const [stockRow] = await db.select({ c: count() }).from(productStocksTable)
+    .where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
+  const stockCount = Number(stockRow?.c ?? 0);
+
+  if (quantity < product.minQuantity || quantity > product.maxQuantity) {
+    await renderView(chatId, editMessageId, `❌ Số lượng không hợp lệ. Mua từ ${product.minQuantity} đến ${product.maxQuantity}.`, {
+      reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
+    });
+    return;
+  }
+
+  if (stockCount < quantity) {
+    if (stockCount === 0) {
+      await renderView(chatId, editMessageId, `❌ <b>${product.name}</b> hiện đã hết hàng.\n\nBạn có thể yêu cầu shop nhập thêm hàng.`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
+            [{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+          ],
+        },
+      });
+    } else {
+      await renderView(chatId, editMessageId, `❌ Không đủ hàng. Chỉ còn <b>${stockCount}</b> sản phẩm. Vui lòng chọn số lượng phù hợp.`, {
+        reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
+      });
+    }
+    return;
+  }
+
+  // Persist the current state (product + qty + promo) so any subsequent text
+  // typed by the customer is recognised as a promo code entry.
+  awaitingQuantity.set(String(chatId), {
+    productId,
+    quantity,
+    expiresAt: Date.now() + QUANTITY_PROMPT_TTL_MS,
+    appliedPromo: appliedPromo ?? undefined,
+  });
+
+  const subtotal = parseFloat(product.price) * quantity;
+  const discount = appliedPromo ? appliedPromo.discountAmount : 0;
+  const finalTotal = Math.max(0, subtotal - discount);
+  const subtotalFormatted = subtotal.toLocaleString("vi-VN");
+  const finalFormatted = finalTotal.toLocaleString("vi-VN");
+
+  let msg = `🛒 <b>${product.name}</b> × ${quantity}\n\n`;
+  if (appliedPromo) {
+    msg += `💰 Tạm tính: <s>${subtotalFormatted}đ</s>\n`;
+    msg += `🎟️ Mã <code>${appliedPromo.code}</code>: −${appliedPromo.discountAmount.toLocaleString("vi-VN")}đ\n`;
+    msg += `💵 <b>Tổng: ${finalFormatted}đ</b>`;
+  } else {
+    msg += `💵 <b>Tổng: ${subtotalFormatted}đ</b>`;
+  }
+
+  const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
+
+  // Promo row: clear existing code OR enter a new one (+ quick reuse)
+  if (appliedPromo) {
+    keyboard.push([{ text: `❌ Bỏ mã: ${appliedPromo.code}`, callback_data: `clear_promo_${productId}_${quantity}` }]);
+  } else {
+    const promoRow: Array<{ text: string; callback_data: string }> = [
+      { text: "🎟️ Nhập mã giảm giá", callback_data: `promo_enter_${productId}_${quantity}` },
+    ];
+    const recent = await findRecentPromotionForCustomer(customerId);
+    if (recent) {
+      promoRow.push({ text: `🔁 ${recent.code}`, callback_data: `reuse_promo_${recent.id}_${productId}_${quantity}` });
+    }
+    keyboard.push(promoRow);
+  }
+
+  const promoSuffix = appliedPromo ? `_${appliedPromo.id}` : "";
+  keyboard.push([{ text: "✅ Đặt hàng", callback_data: `confirm_order_${productId}_${quantity}${promoSuffix}` }]);
+  keyboard.push([{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }]);
+
+  await renderView(chatId, editMessageId, msg, { reply_markup: { inline_keyboard: keyboard } });
+}
+
 async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null): Promise<void> {
   const { sql, count } = await import("drizzle-orm");
   const [product] = await db.select({
@@ -1012,7 +1131,12 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       msg += `\n\n💡 <i>Số dư ví ${customerBalance.toLocaleString("vi-VN")}đ chưa đủ để thanh toán. Nạp thêm bằng /naptien để thanh toán nhanh hơn.</i>`;
     }
 
-    await sendMessage(chatId, msg);
+    if (paymentInfo.qrUrl) {
+      const sent = await sendPhoto(chatId, paymentInfo.qrUrl, msg);
+      if (!sent) await sendMessage(chatId, msg);
+    } else {
+      await sendMessage(chatId, msg);
+    }
     await logBotAction("payment_initiated", String(chatId), customerId, `Payment for order ${orderCode}`, { orderId: order.id, reference: paymentInfo.reference });
   } else {
     await sendMessage(chatId, `✅ Đơn hàng <b>${orderCode}</b> đã tạo! Vui lòng liên hệ admin để thanh toán.`);
@@ -1556,70 +1680,66 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         clearAwaitingQuantity(chatId);
         await showWalletHistory(chatId, customer);
       } else if (awaitingQuantity.has(String(chatId)) && text.trim().length > 0) {
-        // Customer typed a custom quantity while in quantity-prompt state.
-        const pending = takeAwaitingQuantity(chatId);
-        if (!pending) {
-          await sendMessage(chatId, "⏰ Phiên nhập số lượng đã hết hạn. Vui lòng chọn lại sản phẩm.");
-        } else {
+        const entry = peekAwaitingQuantity(chatId);
+        if (!entry) {
+          clearAwaitingQuantity(chatId);
+          await sendMessage(chatId, "⏰ Phiên đã hết hạn. Vui lòng chọn lại sản phẩm.");
+        } else if (entry.awaitingPromoEntry) {
+          // Customer typed a promo code while on the confirm screen
+          updateAwaitingQuantity(chatId, { awaitingPromoEntry: false });
+          const qty = entry.quantity!;
           const { sql, count } = await import("drizzle-orm");
-          const [product] = await db.select({
-            name: productsTable.name,
-            minQuantity: productsTable.minQuantity,
-            maxQuantity: productsTable.maxQuantity,
-          }).from(productsTable).where(eq(productsTable.id, pending.productId));
-          if (!product) {
-            await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
-          } else {
-            const trimmed = text.trim();
-            const qty = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : NaN;
-            // Validate against the configured min/max only — actual stock is
-            // re-checked when the order is confirmed, which produces a clear
-            // "không còn đủ hàng" error if the pick exceeds available stock.
-            if (!Number.isFinite(qty) || qty < product.minQuantity || qty > product.maxQuantity) {
-              // Re-arm so the customer can try again.
-              setAwaitingQuantity(chatId, pending.productId);
-              await sendMessage(
-                chatId,
-                `❌ Số lượng không hợp lệ. Vui lòng nhập một số từ <b>${product.minQuantity}</b> đến <b>${product.maxQuantity}</b>.`,
-                { reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${pending.productId}` }]] } }
-              );
-            } else {
-              await logBotAction("quantity_input", String(chatId), customer.id, `Custom quantity ${qty} for product ${pending.productId}`, { productId: pending.productId, quantity: qty });
-              await promptForPromoCode(chatId, customer.id, pending.productId, qty);
-            }
-          }
-        }
-      } else if ((await hasAwaitingPromo(chatId)) && text.trim().length > 0) {
-        // Customer typed a promo code while in promo-prompt state.
-        const pending = await takeAwaitingPromo(chatId);
-        if (!pending) {
-          await sendMessage(chatId, "⏰ Phiên nhập mã đã hết hạn. Vui lòng đặt hàng lại.");
-        } else {
-          const { sql, count } = await import("drizzle-orm");
-          const [product] = await db.select({
-            price: productsTable.price,
-          }).from(productsTable).where(eq(productsTable.id, pending.productId));
-          const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${pending.productId} AND ${productStocksTable.status} = 'available'`);
+          const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, entry.productId));
+          const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${entry.productId} AND ${productStocksTable.status} = 'available'`);
           const stockCount = Number(stockRow?.c ?? 0);
-
-          if (!product || stockCount < pending.quantity) {
+          if (!product || stockCount < qty) {
+            clearAwaitingQuantity(chatId);
             await sendMessage(chatId, "❌ Sản phẩm không còn đủ hàng. Vui lòng chọn lại.");
           } else {
-            const subtotal = parseFloat(product.price) * pending.quantity;
-            const result = await validatePromoCode(text, subtotal);
+            const subtotal = parseFloat(product.price) * qty;
+            const result = await validatePromoCode(text.trim(), subtotal);
             if ("error" in result) {
-              await logBotAction("promo_invalid", String(chatId), customer.id, `Invalid promo "${text}": ${result.error}`, { code: text, productId: pending.productId, quantity: pending.quantity }, "warn");
-              // Re-arm the prompt so the user can try again or skip.
-              await setAwaitingPromo(chatId, pending.productId, pending.quantity);
-              await sendMessage(chatId, `❌ ${result.error}\n\n<i>Hãy thử mã khác hoặc bấm "Bỏ qua".</i>`, {
+              await logBotAction("promo_invalid", String(chatId), customer.id, `Invalid promo "${text.trim()}": ${result.error}`, { code: text.trim(), productId: entry.productId, quantity: qty }, "warn");
+              // Re-arm promo entry so the customer can try another code
+              updateAwaitingQuantity(chatId, { awaitingPromoEntry: true });
+              await sendMessage(chatId, `❌ ${result.error}\n\n<i>Hãy thử mã khác hoặc bấm "Bỏ qua" bên dưới.</i>`, {
                 reply_markup: {
-                  inline_keyboard: [[{ text: "⏭️ Bỏ qua", callback_data: `skip_promo_${pending.productId}_${pending.quantity}` }]],
+                  inline_keyboard: [[{ text: "⏭️ Bỏ qua", callback_data: `clear_promo_${entry.productId}_${qty}` }]],
                 },
               });
             } else {
-              await logBotAction("promo_applied", String(chatId), customer.id, `Applied promo ${result.code} (-${result.discountAmount})`, { code: result.code, promotionId: result.id, discountAmount: result.discountAmount, productId: pending.productId, quantity: pending.quantity });
-              await sendMessage(chatId, `✅ Đã áp dụng mã <code>${result.code}</code> — giảm <b>${result.discountAmount.toLocaleString("vi-VN")}đ</b>`);
-              await createOrderFromBot(chatId, customer.id, pending.productId, pending.quantity, result);
+              await logBotAction("promo_applied", String(chatId), customer.id, `Applied promo ${result.code} (-${result.discountAmount})`, { code: result.code, promotionId: result.id, discountAmount: result.discountAmount, productId: entry.productId, quantity: qty });
+              await showOrderConfirmScreen(chatId, customer.id, entry.productId, qty, result);
+            }
+          }
+        } else {
+          // Customer typed a custom quantity
+          const pending = takeAwaitingQuantity(chatId);
+          if (!pending) {
+            await sendMessage(chatId, "⏰ Phiên nhập số lượng đã hết hạn. Vui lòng chọn lại sản phẩm.");
+          } else {
+            const { sql, count } = await import("drizzle-orm");
+            const [product] = await db.select({
+              name: productsTable.name,
+              minQuantity: productsTable.minQuantity,
+              maxQuantity: productsTable.maxQuantity,
+            }).from(productsTable).where(eq(productsTable.id, pending.productId));
+            if (!product) {
+              await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
+            } else {
+              const trimmed = text.trim();
+              const qty = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : NaN;
+              if (!Number.isFinite(qty) || qty < product.minQuantity || qty > product.maxQuantity) {
+                setAwaitingQuantity(chatId, pending.productId);
+                await sendMessage(
+                  chatId,
+                  `❌ Số lượng không hợp lệ. Vui lòng nhập một số từ <b>${product.minQuantity}</b> đến <b>${product.maxQuantity}</b>.`,
+                  { reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${pending.productId}` }]] } }
+                );
+              } else {
+                await logBotAction("quantity_input", String(chatId), customer.id, `Custom quantity ${qty} for product ${pending.productId}`, { productId: pending.productId, quantity: qty });
+                await showOrderConfirmScreen(chatId, customer.id, pending.productId, qty, null);
+              }
             }
           }
         }
@@ -1641,9 +1761,9 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       const data = cq.data ?? "";
       await logBotAction("callback", String(chatId), customer.id, data);
 
-      // Any callback that isn't continuing the quantity-input flow exits it cleanly,
-      // so a stray text typed afterwards won't be picked up as a quantity.
-      if (!data.startsWith("qty_input_")) {
+      // Any callback that isn't part of the quantity/confirm flow exits it cleanly.
+      const KEEP_QTY_STATE_PREFIXES = ["qty_input_", "promo_enter_", "clear_promo_", "confirm_order_", "reuse_promo_"];
+      if (!KEEP_QTY_STATE_PREFIXES.some(p => data.startsWith(p))) {
         clearAwaitingQuantity(chatId);
       }
 
@@ -1796,8 +1916,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         const parts = data.split("_");
         const productId = parseInt(parts[1], 10);
         const quantity = parseInt(parts[2], 10);
-        clearAwaitingQuantity(chatId);
-        await promptForPromoCode(chatId, customer.id, productId, quantity, messageId);
+        await showOrderConfirmScreen(chatId, customer.id, productId, quantity, null, messageId);
       } else if (data.startsWith("skip_promo_")) {
         const parts = data.replace("skip_promo_", "").split("_");
         const productId = parseInt(parts[0], 10);
@@ -1828,20 +1947,52 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           const result = code ? await validatePromoCode(code, subtotal) : { error: "Mã giảm giá không tồn tại." };
           if ("error" in result) {
             await logBotAction("promo_reuse_invalid", String(chatId), customer.id, `Reuse failed for promo ${promotionId}: ${result.error}`, { promotionId, productId, quantity, error: result.error }, "warn");
-            await sendMessage(
-              chatId,
-              `❌ Mã <code>${code || "?"}</code> không còn dùng được: ${result.error}\n\n<i>Vui lòng nhập mã khác hoặc bấm "Bỏ qua".</i>`,
-            );
-            // Fall back to the manual prompt (re-arms awaiting state). Reuse
-            // the original menu slot so the customer keeps a single, up-to-date
-            // prompt instead of a stale one above the error message.
-            await promptForPromoCode(chatId, customer.id, productId, quantity, messageId);
+            await sendMessage(chatId, `❌ Mã <code>${code || "?"}</code> không còn dùng được: ${result.error}`);
+            await showOrderConfirmScreen(chatId, customer.id, productId, quantity, null, messageId);
           } else {
             await logBotAction("promo_reused", String(chatId), customer.id, `Reused promo ${result.code} (-${result.discountAmount})`, { code: result.code, promotionId: result.id, discountAmount: result.discountAmount, productId, quantity });
-            await sendMessage(chatId, `✅ Đã áp dụng lại mã <code>${result.code}</code> — giảm <b>${result.discountAmount.toLocaleString("vi-VN")}đ</b>`);
-            await createOrderFromBot(chatId, customer.id, productId, quantity, result);
+            await showOrderConfirmScreen(chatId, customer.id, productId, quantity, result, messageId);
           }
         }
+      } else if (data.startsWith("promo_enter_")) {
+        // Customer tapped "Nhập mã giảm giá" on the confirm screen
+        const parts = data.replace("promo_enter_", "").split("_");
+        const productId = parseInt(parts[0], 10);
+        const quantity = parseInt(parts[1], 10);
+        updateAwaitingQuantity(chatId, { awaitingPromoEntry: true });
+        await sendMessage(chatId, `🎟️ <b>Nhập mã giảm giá của bạn</b>\n<i>Gõ mã vào ô chat bên dưới. Nhấn "Bỏ qua" nếu không có mã.</i>`, {
+          reply_markup: { inline_keyboard: [[{ text: "⏭️ Bỏ qua", callback_data: `clear_promo_${productId}_${quantity}` }]] },
+        });
+      } else if (data.startsWith("clear_promo_")) {
+        // Customer tapped "Bỏ mã" or "Bỏ qua" — show confirm screen without promo
+        const parts = data.replace("clear_promo_", "").split("_");
+        const productId = parseInt(parts[0], 10);
+        const quantity = parseInt(parts[1], 10);
+        await showOrderConfirmScreen(chatId, customer.id, productId, quantity, null, messageId);
+      } else if (data.startsWith("confirm_order_")) {
+        // Customer confirmed the order from the confirm screen
+        // Format: confirm_order_{productId}_{quantity} or confirm_order_{productId}_{quantity}_{promotionId}
+        const rest = data.replace("confirm_order_", "");
+        const parts = rest.split("_");
+        const productId = parseInt(parts[0], 10);
+        const quantity = parseInt(parts[1], 10);
+        const promotionId = parts[2] ? parseInt(parts[2], 10) : null;
+        clearAwaitingQuantity(chatId);
+
+        let promotion: ValidPromotion | null = null;
+        if (promotionId) {
+          const { sql, count } = await import("drizzle-orm");
+          const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, productId));
+          const [promo] = await db.select({ code: promotionsTable.code }).from(promotionsTable).where(eq(promotionsTable.id, promotionId));
+          if (product && promo?.code) {
+            const subtotal = parseFloat(product.price) * quantity;
+            const result = await validatePromoCode(promo.code, subtotal);
+            if (!("error" in result)) {
+              promotion = result;
+            }
+          }
+        }
+        await createOrderFromBot(chatId, customer.id, productId, quantity, promotion);
       } else if (data.startsWith("pay_with_balance_")) {
         const orderId = parseInt(data.replace("pay_with_balance_", ""), 10);
         // Use the combined atomic function: stock claim + balance debit + delivery
