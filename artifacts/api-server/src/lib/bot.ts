@@ -114,7 +114,7 @@ function clearAwaitingQuantity(chatId: number | string): void {
   awaitingQuantity.delete(String(chatId));
 }
 
-interface ValidPromotion {
+export interface ValidPromotion {
   id: number;
   name: string;
   code: string;
@@ -1222,7 +1222,7 @@ async function showOrderConfirmScreen(
   await renderView(chatId, editMessageId, msg, { reply_markup: { inline_keyboard: keyboard } });
 }
 
-async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null, lang: Lang = "vi"): Promise<void> {
+export async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null, lang: Lang = "vi"): Promise<void> {
   const [product, { shopName }] = await Promise.all([
     db.select({
       id: productsTable.id,
