@@ -1178,6 +1178,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     "order.bank_info_title", "order.bank_name", "order.account_number", "order.account_holder",
     "order.amount", "order.transfer_note", "order.transfer_warning", "order.low_balance_hint",
     "order.contact_admin", "order.no_payment_config", "prod.out_of_stock_race",
+    "promo.limit_exceeded",
   ], lang);
 
   const amountSuffix = lang === "en" ? "₫" : "đ";
@@ -1312,7 +1313,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     }
     if ((err as Error).message === PROMO_LIMIT_EXCEEDED) {
       // Another concurrent order used the last allowed slot for this promo code.
-      await sendMessage(chatId, "❌ Mã giảm giá vừa hết lượt sử dụng. Vui lòng thử mã khác hoặc đặt hàng không dùng mã.", {
+      await sendMessage(chatId, strings["promo.limit_exceeded"], {
         reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
       });
       return;

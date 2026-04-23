@@ -266,6 +266,7 @@ export const DEFAULT_STRINGS: Array<{ key: string; vi: string; en: string }> = [
   { key: "prod.out_of_stock_req", vi: "❌ <b>{name}</b> hiện đã hết hàng.\n\nBạn có thể yêu cầu shop nhập thêm hàng.", en: "❌ <b>{name}</b> is currently out of stock.\n\nYou can request the shop to restock." },
   { key: "prod.not_enough_qty", vi: "❌ Không đủ hàng. Chỉ còn <b>{n}</b> sản phẩm. Vui lòng chọn số lượng phù hợp.", en: "❌ Not enough stock. Only <b>{n}</b> available. Please choose a smaller quantity." },
   { key: "prod.out_of_stock_race", vi: "❌ <b>{name}</b> đã hết hàng vào lúc xác nhận đơn. Vui lòng thử lại.", en: "❌ <b>{name}</b> sold out just before your order was confirmed. Please try again." },
+  { key: "promo.limit_exceeded", vi: "❌ Mã giảm giá vừa hết lượt sử dụng. Vui lòng thử mã khác hoặc đặt hàng không dùng mã.", en: "❌ The promo code just ran out of uses. Please try a different code or place your order without one." },
   { key: "prod.not_enough_reuse", vi: "❌ Sản phẩm không còn đủ hàng. Vui lòng chọn lại.", en: "❌ Product no longer has enough stock. Please try again." },
 
   // ── Stock requests ──
