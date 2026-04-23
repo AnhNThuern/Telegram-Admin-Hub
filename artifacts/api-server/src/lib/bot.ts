@@ -1705,7 +1705,8 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
     });
 
     // Store VND in amount (accounting currency), USDT with full precision in cryptoAmount
-    const binanceTxCode = `BP${order.orderCode}`;
+    // Include timestamp so each attempt (including QR refresh) gets a unique transactionCode
+    const binanceTxCode = `BP${order.orderCode}_${Date.now()}`;
     await db.insert(transactionsTable).values({
       transactionCode: binanceTxCode,
       orderId: order.id,
