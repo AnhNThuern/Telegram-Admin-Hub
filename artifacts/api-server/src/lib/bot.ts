@@ -81,6 +81,8 @@ interface AwaitingQuantity {
   quantity?: number;
   awaitingPromoEntry?: boolean;
   appliedPromo?: { id: number; code: string; discountAmount: number };
+  /** Message ID of the confirm screen so it can be updated in-place after promo entry. */
+  confirmMessageId?: number;
 }
 const awaitingQuantity = new Map<string, AwaitingQuantity>();
 const QUANTITY_PROMPT_TTL_MS = 10 * 60 * 1000;
@@ -122,7 +124,7 @@ interface ValidPromotion {
  * Validate a promo code against an order subtotal. Returns the computed discount and promotion info,
  * or an error message string explaining why the code is invalid.
  */
-async function validatePromoCode(rawCode: string, subtotal: number): Promise<ValidPromotion | { error: string }> {
+async function validatePromoCode(rawCode: string, subtotal: number, quantity = 1): Promise<ValidPromotion | { error: string }> {
   const code = rawCode.trim().toUpperCase();
   if (!code) return { error: "Mã giảm giá trống." };
 
@@ -137,20 +139,39 @@ async function validatePromoCode(rawCode: string, subtotal: number): Promise<Val
     return { error: "Mã giảm giá đã hết lượt sử dụng." };
   }
 
+  const unitPrice = quantity > 0 ? subtotal / quantity : subtotal;
   const value = promo.discountValue != null ? parseFloat(promo.discountValue) : NaN;
   let discount = 0;
+
   if (promo.type === "percentage") {
     if (!isFinite(value) || value <= 0) return { error: "Mã giảm giá chưa được cấu hình giá trị hợp lệ." };
     discount = Math.round((subtotal * value) / 100);
   } else if (promo.type === "fixed") {
     if (!isFinite(value) || value <= 0) return { error: "Mã giảm giá chưa được cấu hình giá trị hợp lệ." };
     discount = value;
+  } else if (promo.type === "buy_x_get_y") {
+    // Tiers JSON: { "buy": X, "get": Y } — for every X items bought, Y are free.
+    let tierBuy = 1, tierGet = 1;
+    try {
+      const t = promo.tiers as { buy?: number; get?: number } | null;
+      if (t?.buy && t.buy > 0) tierBuy = t.buy;
+      if (t?.get && t.get > 0) tierGet = t.get;
+    } catch { /* use defaults */ }
+    if (quantity < tierBuy) {
+      return { error: `Cần mua tối thiểu ${tierBuy} sản phẩm để áp dụng mã này.` };
+    }
+    // Number of complete buy-cycles in the order
+    const sets = Math.floor(quantity / (tierBuy + tierGet));
+    const remainder = quantity % (tierBuy + tierGet);
+    // Items in remainder that qualify as "buy" (not yet triggering another free)
+    const freeItems = sets * tierGet + Math.max(0, remainder - tierBuy);
+    discount = Math.round(freeItems * unitPrice);
   } else {
     return { error: "Loại khuyến mãi này chưa hỗ trợ nhập mã. Vui lòng dùng mã giảm giá theo % hoặc số tiền cố định." };
   }
 
   if (discount > subtotal) discount = subtotal;
-  if (discount <= 0) return { error: "Mã giảm giá không tạo ra khoản giảm hợp lệ." };
+  if (discount <= 0) return { error: "Mã giảm giá không tạo ra khoản giảm hợp lệ cho số lượng này." };
 
   return { id: promo.id, name: promo.name, code: promo.code ?? code, discountAmount: discount };
 }
@@ -1013,6 +1034,7 @@ async function showOrderConfirmScreen(
     quantity,
     expiresAt: Date.now() + QUANTITY_PROMPT_TTL_MS,
     appliedPromo: appliedPromo ?? undefined,
+    confirmMessageId: editMessageId,
   });
 
   const subtotal = parseFloat(product.price) * quantity;
@@ -1918,7 +1940,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             await showProductDetail(chatId, entry.productId);
           } else {
             const subtotal = parseFloat(product.price) * qty;
-            const result = await validatePromoCode(text.trim(), subtotal);
+            const confirmMsgId = entry.confirmMessageId;
+            const result = await validatePromoCode(text.trim(), subtotal, qty);
             if ("error" in result) {
               await logBotAction("promo_invalid", String(chatId), customer.id, `Invalid promo "${text.trim()}": ${result.error}`, { code: text.trim(), productId: entry.productId, quantity: qty }, "warn");
               // Re-arm promo entry so the customer can try another code
@@ -1930,7 +1953,9 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               });
             } else {
               await logBotAction("promo_applied", String(chatId), customer.id, `Applied promo ${result.code} (-${result.discountAmount})`, { code: result.code, promotionId: result.id, discountAmount: result.discountAmount, productId: entry.productId, quantity: qty });
-              await showOrderConfirmScreen(chatId, customer.id, entry.productId, qty, result);
+              // Edit the original confirm screen in-place (confirmMsgId) so the
+              // customer sees the discount applied without a new message flood.
+              await showOrderConfirmScreen(chatId, customer.id, entry.productId, qty, result, confirmMsgId);
             }
           }
         } else {
@@ -2188,7 +2213,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           const [promo] = await db.select({ code: promotionsTable.code }).from(promotionsTable).where(eq(promotionsTable.id, promotionId));
           const code = promo?.code ?? "";
           const subtotal = parseFloat(product.price) * quantity;
-          const result = code ? await validatePromoCode(code, subtotal) : { error: "Mã giảm giá không tồn tại." };
+          const result = code ? await validatePromoCode(code, subtotal, quantity) : { error: "Mã giảm giá không tồn tại." };
           if ("error" in result) {
             await logBotAction("promo_reuse_invalid", String(chatId), customer.id, `Reuse failed for promo ${promotionId}: ${result.error}`, { promotionId, productId, quantity, error: result.error }, "warn");
             await sendMessage(chatId, `❌ Mã <code>${code || "?"}</code> không còn dùng được: ${result.error}`);
@@ -2199,11 +2224,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           }
         }
       } else if (data.startsWith("promo_enter_")) {
-        // Customer tapped "Nhập mã giảm giá" on the confirm screen
+        // Customer tapped "Nhập mã giảm giá" on the confirm screen.
+        // Save the confirm screen's messageId so we can edit it in-place
+        // when the customer types a valid code (instead of sending a 3rd message).
         const parts = data.replace("promo_enter_", "").split("_");
         const productId = parseInt(parts[0], 10);
         const quantity = parseInt(parts[1], 10);
-        updateAwaitingQuantity(chatId, { awaitingPromoEntry: true });
+        updateAwaitingQuantity(chatId, { awaitingPromoEntry: true, confirmMessageId: messageId });
         await sendMessage(chatId, `🎟️ <b>Nhập mã giảm giá của bạn</b>\n<i>Gõ mã vào ô chat bên dưới. Nhấn "Bỏ qua" nếu không có mã.</i>`, {
           reply_markup: { inline_keyboard: [[{ text: "⏭️ Bỏ qua", callback_data: `clear_promo_${productId}_${quantity}` }]] },
         });
@@ -2230,7 +2257,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           const [promo] = await db.select({ code: promotionsTable.code }).from(promotionsTable).where(eq(promotionsTable.id, promotionId));
           if (product && promo?.code) {
             const subtotal = parseFloat(product.price) * quantity;
-            const result = await validatePromoCode(promo.code, subtotal);
+            const result = await validatePromoCode(promo.code, subtotal, quantity);
             if (!("error" in result)) {
               promotion = result;
             }

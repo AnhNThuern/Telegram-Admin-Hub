@@ -56,7 +56,7 @@ export default function SettingsI18n() {
       en: edits[key].en,
     }));
     bulkUpdate.mutate(
-      { updates },
+      { data: { updates } },
       {
         onSuccess: () => {
           toast({ title: "Đã lưu thành công", description: `Cập nhật ${updates.length} chuỗi ngôn ngữ.` });
