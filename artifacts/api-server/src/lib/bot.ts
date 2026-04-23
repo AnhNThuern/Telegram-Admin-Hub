@@ -845,7 +845,12 @@ async function showProductDetail(chatId: number | string, productId: number, edi
   const stockText = outOfStock
     ? strings["prod.out_of_stock"]
     : `${strings["prod.in_stock"]} (${product.stockCount})`;
-  const qtyDisplay = outOfStock ? "0" : `${product.minQuantity} - ${product.maxQuantity}`;
+
+  // Effective max is capped by actual available stock so customers never see
+  // a quantity button that will be rejected at order time.
+  const minQ = product.minQuantity;
+  const maxQ = outOfStock ? 0 : Math.min(product.maxQuantity, product.stockCount);
+  const qtyDisplay = outOfStock ? "0" : `${minQ} - ${maxQ}`;
 
   let msg = `📦 <b>${product.name}</b>\n`;
   if (product.description) msg += `\n${product.description}\n`;
@@ -854,8 +859,6 @@ async function showProductDetail(chatId: number | string, productId: number, edi
   msg += `\n${strings["prod.qty_range"]} ${qtyDisplay}`;
 
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
-  const minQ = product.minQuantity;
-  const maxQ = product.maxQuantity;
   if (!outOfStock && product.stockCount >= minQ) {
     // Show purchase actions whenever there's at least enough stock for the
     // minimum quantity.
@@ -1970,16 +1973,22 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               minQuantity: productsTable.minQuantity,
               maxQuantity: productsTable.maxQuantity,
             }).from(productsTable).where(eq(productsTable.id, pending.productId));
+            const [stockRow2] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${pending.productId} AND ${productStocksTable.status} = 'available'`);
+            const availableStock = Number(stockRow2?.c ?? 0);
             if (!product) {
               await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
             } else {
+              const effectiveMax = Math.min(product.maxQuantity, availableStock);
               const trimmed = text.trim();
               const qty = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : NaN;
-              if (!Number.isFinite(qty) || qty < product.minQuantity || qty > product.maxQuantity) {
+              if (!Number.isFinite(qty) || qty < product.minQuantity || qty > effectiveMax) {
                 setAwaitingQuantity(chatId, pending.productId);
+                const overStockMsg = Number.isFinite(qty) && qty > effectiveMax && effectiveMax > 0
+                  ? `❌ Chỉ còn <b>${effectiveMax}</b> sản phẩm trong kho. Vui lòng nhập từ <b>${product.minQuantity}</b> đến <b>${effectiveMax}</b>.`
+                  : `❌ Số lượng không hợp lệ. Vui lòng nhập một số từ <b>${product.minQuantity}</b> đến <b>${effectiveMax}</b>.`;
                 await sendMessage(
                   chatId,
-                  `❌ Số lượng không hợp lệ. Vui lòng nhập một số từ <b>${product.minQuantity}</b> đến <b>${product.maxQuantity}</b>.`,
+                  overStockMsg,
                   { reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${pending.productId}` }]] } }
                 );
               } else {
