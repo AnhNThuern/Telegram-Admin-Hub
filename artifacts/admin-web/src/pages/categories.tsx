@@ -53,7 +53,7 @@ export default function Categories() {
       icon: editingId !== null ? trimmedIcon : trimmedIcon || undefined,
       isActive: data.isActive,
     };
-    if (editingId) {
+    if (editingId !== null) {
       updateCategory.mutate(
         { id: editingId, data: payload },
         {
