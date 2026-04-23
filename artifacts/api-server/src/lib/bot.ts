@@ -387,6 +387,65 @@ export async function sendAdminNotification(message: string, metadata?: Record<s
   }
 }
 
+/**
+ * Broadcast a restock notification for the given product to all active customers.
+ * Sends messages in small batches with short delays to stay within Telegram's
+ * 30 msg/s global rate limit. Returns { sent, total }.
+ */
+export async function broadcastProductNotification(
+  productId: number,
+  productName: string,
+  productPrice: string,
+): Promise<{ sent: number; total: number; botConfigured: boolean }> {
+  const token = await getBotToken();
+  if (!token) return { sent: 0, total: 0, botConfigured: false };
+
+  const customers = await db
+    .select({ chatId: customersTable.chatId })
+    .from(customersTable)
+    .where(eq(customersTable.isActive, true));
+
+  const priceFormatted = parseFloat(productPrice).toLocaleString("vi-VN");
+  const text =
+    `🔔 <b>Sản phẩm vừa có hàng!</b>\n\n` +
+    `📦 <b>${productName}</b>\n` +
+    `💰 Giá: <b>${priceFormatted}đ</b>\n\n` +
+    `Bấm nút bên dưới để mua ngay!`;
+
+  const inlineKeyboard = {
+    inline_keyboard: [[{ text: "🛒 Mua ngay", callback_data: `prod_${productId}` }]],
+  };
+
+  const BATCH_SIZE = 25;
+  const BATCH_DELAY_MS = 1000;
+
+  let sent = 0;
+  const total = customers.length;
+
+  for (let i = 0; i < customers.length; i += BATCH_SIZE) {
+    const batch = customers.slice(i, i + BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (c) => {
+        const ok = await sendMessage(c.chatId, text, { reply_markup: inlineKeyboard });
+        if (ok) sent++;
+      }),
+    );
+    if (i + BATCH_SIZE < customers.length) {
+      await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+    }
+  }
+
+  await logBotAction(
+    "broadcast_restock",
+    undefined,
+    undefined,
+    `Broadcast for product ${productId} (${productName}): ${sent}/${total} sent`,
+    { productId, productName, sent, total },
+  );
+
+  return { sent, total, botConfigured: true };
+}
+
 async function upsertCustomer(from: { id: number; first_name?: string; last_name?: string; username?: string }): Promise<typeof customersTable.$inferSelect> {
   const chatId = String(from.id);
   const [existing] = await db.select().from(customersTable).where(eq(customersTable.chatId, chatId));
@@ -1447,14 +1506,24 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
       await logBotAction("message", String(chatId), customer.id, text);
 
-      if (text === "/start") {
+      if (text === "/start" || text.startsWith("/start ")) {
         await clearAwaitingPromo(chatId);
         clearAwaitingQuantity(chatId);
-        await logBotAction("start", String(chatId), customer.id, "/start command");
-        // Anchor message that installs the persistent reply keyboard, then the
-        // inline main menu on top of it.
+        await logBotAction("start", String(chatId), customer.id, text);
+        // Anchor message that installs the persistent reply keyboard.
         await showReplyKeyboard(chatId);
-        await showMainMenu(chatId, from.first_name);
+        // Handle deep-link parameter: /start prod_<id>
+        const startParam = text.startsWith("/start ") ? text.slice(7).trim() : "";
+        if (startParam.startsWith("prod_")) {
+          const deepProductId = parseInt(startParam.replace("prod_", ""), 10);
+          if (!isNaN(deepProductId)) {
+            await showProductDetail(chatId, deepProductId);
+          } else {
+            await showMainMenu(chatId, from.first_name);
+          }
+        } else {
+          await showMainMenu(chatId, from.first_name);
+        }
       } else if (REPLY_KEYBOARD_BUTTONS.has(text.trim())) {
         // A tap on the persistent reply keyboard. Always cancel any pending
         // quantity / promo prompt — the user is starting a new flow.

@@ -328,6 +328,19 @@ export const AddProductStocksBody = zod.object({
 });
 
 /**
+ * @summary Broadcast a restock notification to all registered Telegram users
+ */
+export const NotifyProductRestockedParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const NotifyProductRestockedResponse = zod.object({
+  sent: zod.number().describe("Number of users successfully notified"),
+  total: zod.number().describe("Total number of users attempted"),
+  message: zod.string(),
+});
+
+/**
  * @summary Delete a stock line
  */
 export const DeleteStockParams = zod.object({

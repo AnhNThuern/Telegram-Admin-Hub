@@ -3,7 +3,7 @@ import { eq, ilike, and, sql, count, or, lt } from "drizzle-orm";
 import { db, productsTable, productStocksTable, categoriesTable, ordersTable, orderItemsTable, botLogsTable, customersTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateBody, validateParams, validateQuery } from "../middlewares/validate";
-import { deliverOrder, sendAdminNotification, sendMessageToCustomer } from "../lib/bot";
+import { deliverOrder, sendAdminNotification, sendMessageToCustomer, broadcastProductNotification } from "../lib/bot";
 import { logger } from "../lib/logger";
 import {
   ListProductsQueryParams,
@@ -17,6 +17,7 @@ import {
   AddProductStocksParams,
   AddProductStocksBody,
   DeleteStockParams,
+  NotifyProductRestockedParams,
 } from "@workspace/api-zod";
 import type z from "zod";
 
@@ -265,6 +266,34 @@ router.delete("/stocks/:id", requireAuth, validateParams(DeleteStockParams), asy
     return;
   }
   res.sendStatus(204);
+});
+
+router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRestockedParams), async (req, res): Promise<void> => {
+  const { id: productId } = req.params as unknown as z.infer<typeof NotifyProductRestockedParams>;
+
+  const [product] = await db.select({
+    id: productsTable.id,
+    name: productsTable.name,
+    price: productsTable.price,
+  }).from(productsTable).where(eq(productsTable.id, productId));
+
+  if (!product) {
+    res.status(404).json({ error: "Product not found" });
+    return;
+  }
+
+  const { sent, total, botConfigured } = await broadcastProductNotification(productId, product.name, product.price);
+
+  if (!botConfigured) {
+    res.status(503).json({ error: "Bot token chưa được cấu hình. Vui lòng cấu hình Telegram bot trước khi gửi thông báo." });
+    return;
+  }
+
+  res.json({
+    sent,
+    total,
+    message: `Đã gửi thông báo đến ${sent}/${total} người dùng`,
+  });
 });
 
 export default router;

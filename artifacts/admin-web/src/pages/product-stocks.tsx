@@ -1,11 +1,11 @@
-import { useListProductStocks, useAddProductStocks, useDeleteStock, getListProductStocksQueryKey, useGetProduct, getGetProductQueryKey } from "@workspace/api-client-react";
+import { useListProductStocks, useAddProductStocks, useDeleteStock, getListProductStocksQueryKey, useGetProduct, getGetProductQueryKey, useNotifyProductRestocked } from "@workspace/api-client-react";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Trash2, ArrowLeft } from "lucide-react";
+import { Loader2, Plus, Trash2, ArrowLeft, Bell } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -28,11 +28,14 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [stockLines, setStockLines] = useState("");
+  const [isNotifyOpen, setIsNotifyOpen] = useState(false);
+  const [lastAddedCount, setLastAddedCount] = useState(0);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const addStocks = useAddProductStocks();
   const deleteStock = useDeleteStock();
+  const notifyUsers = useNotifyProductRestocked();
 
   const handleAddStocks = () => {
     if (!stockLines.trim()) return;
@@ -42,10 +45,26 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
       { id: productId, data: { lines } },
       {
         onSuccess: (res) => {
-          toast({ title: `Đã thêm ${res.added} kho số mới` });
+          setLastAddedCount(res.added);
           setIsAddOpen(false);
           setStockLines("");
           queryClient.invalidateQueries({ queryKey: getListProductStocksQueryKey(productId) });
+          setIsNotifyOpen(true);
+        },
+      }
+    );
+  };
+
+  const handleNotifyUsers = () => {
+    notifyUsers.mutate(
+      { id: productId },
+      {
+        onSuccess: (res) => {
+          setIsNotifyOpen(false);
+          toast({ title: res.message });
+        },
+        onError: () => {
+          toast({ title: "Không thể gửi thông báo", variant: "destructive" });
         },
       }
     );
@@ -126,6 +145,48 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
           </DialogContent>
         </Dialog>
       </div>
+
+      <Dialog open={isNotifyOpen} onOpenChange={setIsNotifyOpen}>
+        <DialogContent data-testid="dialog-notify-users">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="h-5 w-5 text-primary" />
+              Thông báo đến tất cả người dùng?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Đã nhập thành công <span className="font-semibold text-foreground">{lastAddedCount}</span> kho số mới cho{" "}
+              <span className="font-semibold text-foreground">{product?.name}</span>.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Bạn có muốn gửi thông báo Telegram đến tất cả người dùng với nút <strong>🛒 Mua ngay</strong> không?
+            </p>
+            <div className="flex gap-3">
+              <Button
+                onClick={handleNotifyUsers}
+                className="flex-1"
+                disabled={notifyUsers.isPending}
+                data-testid="btn-confirm-notify"
+              >
+                {notifyUsers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bell className="mr-2 h-4 w-4" />}
+                Gửi thông báo
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setIsNotifyOpen(false);
+                  toast({ title: `Đã thêm ${lastAddedCount} kho số mới` });
+                }}
+                data-testid="btn-skip-notify"
+              >
+                Bỏ qua
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardContent className="p-0">

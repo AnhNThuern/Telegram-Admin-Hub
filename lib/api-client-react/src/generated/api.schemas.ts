@@ -231,6 +231,14 @@ export interface AddStocksResponse {
   message: string;
 }
 
+export interface NotifyProductResponse {
+  /** Number of users successfully notified */
+  sent: number;
+  /** Total number of users attempted */
+  total: number;
+  message: string;
+}
+
 export interface Order {
   id: number;
   orderCode: string;

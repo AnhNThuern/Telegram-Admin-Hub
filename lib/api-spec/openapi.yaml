@@ -399,6 +399,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/AddStocksResponse"
 
+  /products/{id}/notify:
+    post:
+      operationId: notifyProductRestocked
+      tags: [stocks]
+      summary: Broadcast a restock notification to all registered Telegram users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Broadcast result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotifyProductResponse"
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /stocks/{id}:
     delete:
       operationId: deleteStock
@@ -1589,6 +1614,22 @@ components:
           type: string
       required:
         - added
+        - message
+
+    NotifyProductResponse:
+      type: object
+      properties:
+        sent:
+          type: integer
+          description: Number of users successfully notified
+        total:
+          type: integer
+          description: Total number of users attempted
+        message:
+          type: string
+      required:
+        - sent
+        - total
         - message
 
     Order:

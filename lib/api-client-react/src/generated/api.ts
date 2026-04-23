@@ -46,6 +46,7 @@ import type {
   ListTransactionsParams,
   LoginRequest,
   MessageResponse,
+  NotifyProductResponse,
   OrderDetail,
   OrderListResponse,
   PaymentConfig,
@@ -1511,6 +1512,90 @@ export const useAddProductStocks = <
   TContext
 > => {
   return useMutation(getAddProductStocksMutationOptions(options));
+};
+
+/**
+ * @summary Broadcast a restock notification to all registered Telegram users
+ */
+export const getNotifyProductRestockedUrl = (id: number) => {
+  return `/api/products/${id}/notify`;
+};
+
+export const notifyProductRestocked = async (
+  id: number,
+  options?: RequestInit,
+): Promise<NotifyProductResponse> => {
+  return customFetch<NotifyProductResponse>(getNotifyProductRestockedUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getNotifyProductRestockedMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof notifyProductRestocked>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof notifyProductRestocked>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["notifyProductRestocked"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof notifyProductRestocked>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return notifyProductRestocked(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type NotifyProductRestockedMutationResult = NonNullable<
+  Awaited<ReturnType<typeof notifyProductRestocked>>
+>;
+
+export type NotifyProductRestockedMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Broadcast a restock notification to all registered Telegram users
+ */
+export const useNotifyProductRestocked = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof notifyProductRestocked>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof notifyProductRestocked>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getNotifyProductRestockedMutationOptions(options));
 };
 
 /**
