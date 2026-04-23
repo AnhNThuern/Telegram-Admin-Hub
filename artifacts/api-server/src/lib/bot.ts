@@ -758,8 +758,20 @@ async function showActivePromotions(chatId: number | string, lang: Lang = "vi"):
 }
 
 async function showCategories(chatId: number | string, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  const { categoriesTable } = await import("@workspace/db");
-  const categories = await db.select().from(categoriesTable).where(eq(categoriesTable.isActive, true));
+  const { categoriesTable, productsTable, productStocksTable } = await import("@workspace/db");
+  const { sql } = await import("drizzle-orm");
+  const categories = await db.select({
+    id: categoriesTable.id,
+    name: categoriesTable.name,
+    icon: categoriesTable.icon,
+    totalStock: sql<number>`(
+      SELECT COUNT(ps.id)::int FROM product_stocks ps
+      JOIN products p ON ps.product_id = p.id
+      WHERE p.category_id = ${categoriesTable.id}
+        AND p.is_active = true
+        AND ps.status = 'available'
+    )`,
+  }).from(categoriesTable).where(eq(categoriesTable.isActive, true));
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
     t("cat.none", lang),
     t("btn.home", lang),
@@ -771,7 +783,10 @@ async function showCategories(chatId: number | string, editMessageId?: number, l
     });
     return;
   }
-  const keyboard = categories.map(c => [{ text: `${c.icon ?? "📁"} ${c.name}`, callback_data: `cat_${c.id}` }]);
+  const keyboard = categories.map(c => {
+    const stockLabel = c.totalStock > 0 ? ` (${c.totalStock})` : " ❌";
+    return [{ text: `${c.icon ?? "📁"} ${c.name}${stockLabel}`, callback_data: `cat_${c.id}` }];
+  });
   keyboard.push([{ text: await t("btn.back", lang), callback_data: "main_menu" }]);
   await renderView(chatId, editMessageId, titleLabel, { reply_markup: { inline_keyboard: keyboard } });
 }
@@ -799,10 +814,14 @@ async function showProducts(chatId: number | string, categoryId: number, editMes
     });
     return;
   }
-  const keyboard = products.map(p => [{
-    text: `${p.productIcon ?? "📦"} ${p.name} - ${parseFloat(p.price).toLocaleString(locale)}đ ${p.stockCount > 0 ? "✅" : "❌"}`,
-    callback_data: `prod_${p.id}`,
-  }]);
+  const keyboard = products.map(p => {
+    const priceStr = parseFloat(p.price).toLocaleString(locale);
+    const stockBadge = p.stockCount > 0 ? `✅ (${p.stockCount})` : "🔔 Hết hàng";
+    return [{
+      text: `${p.productIcon ?? "📦"} ${p.name} - ${priceStr}đ  ${stockBadge}`,
+      callback_data: `prod_${p.id}`,
+    }];
+  });
   keyboard.push([{ text: backLabel, callback_data: "browse_products" }]);
   await renderView(chatId, editMessageId, titleLabel, { reply_markup: { inline_keyboard: keyboard } });
 }

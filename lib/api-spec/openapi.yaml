@@ -1437,6 +1437,9 @@ components:
           nullable: true
         isActive:
           type: boolean
+        totalStock:
+          type: integer
+          description: Total available stock items across all active products in this category
         createdAt:
           type: string
           format: date-time
@@ -1447,6 +1450,7 @@ components:
         - id
         - name
         - isActive
+        - totalStock
         - createdAt
         - updatedAt
 
