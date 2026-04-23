@@ -82,10 +82,16 @@ export default function SettingsBot() {
   const watchedWelcomeMessage = welcomeForm.watch("welcomeMessage");
   const welcomeMessageLength = (watchedWelcomeMessage ?? "").length;
 
-  // Convert a small subset of Markdown to HTML for the live preview panel.
-  // Matches the same conversions as the backend mdToHtml() function in bot.ts.
-  const mdToHtmlPreview = (text: string): string =>
-    text
+  // Escape HTML special chars to prevent stored XSS when rendering admin-typed
+  // content via dangerouslySetInnerHTML. Applied to the raw input BEFORE any
+  // Markdown conversion, so <script> etc. never execute in the browser.
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  // Convert Markdown bold/italic to HTML for the live preview panel.
+  // Must be called on already-HTML-escaped input.
+  const mdToHtmlPreview = (escaped: string): string =>
+    escaped
       .replace(/\*\*(.+?)\*\*/gs, "<strong>$1</strong>")
       .replace(/__(.+?)__/gs, "<strong>$1</strong>")
       .replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "<em>$1</em>")
@@ -95,12 +101,15 @@ export default function SettingsBot() {
   // Build a live preview of the welcome message (applies same transforms as the bot)
   const welcomePreviewHtml = (() => {
     const name = "<strong>Nguyễn Văn A</strong>";
-    const shop = `<strong>${watchedShopName?.trim() || "cửa hàng"}</strong>`;
+    const shop = `<strong>${escapeHtml(watchedShopName?.trim() || "cửa hàng")}</strong>`;
     if (watchedWelcomeMessage?.trim()) {
-      const substituted = watchedWelcomeMessage
+      // 1. Escape the raw admin input (prevents XSS)
+      // 2. Substitute safe pre-composed HTML for our known placeholders
+      // 3. Convert remaining Markdown patterns to HTML tags
+      const safe = escapeHtml(watchedWelcomeMessage)
         .replace(/\{name\}/g, name)
         .replace(/\{shop_name\}/g, shop);
-      return mdToHtmlPreview(substituted);
+      return mdToHtmlPreview(safe);
     }
     return `👋 Chào mừng ${name} đến với ${shop}!<br/><br/>Chọn tùy chọn bên dưới:`;
   })();

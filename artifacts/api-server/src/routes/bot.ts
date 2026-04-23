@@ -88,7 +88,17 @@ router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (
     }
   } else {
     const [c] = await db.insert(botConfigsTable)
-      .values({ botToken: isMaskedToken ? null : botToken, isConnected: false, webhookStatus: "not_set", adminChatId: adminChatId ?? null })
+      .values({
+        botToken: isMaskedToken ? null : botToken,
+        isConnected: false,
+        webhookStatus: "not_set",
+        adminChatId: adminChatId ?? null,
+        warrantyText: warrantyText ?? null,
+        supportText: supportText ?? null,
+        infoText: infoText ?? null,
+        shopName: shopName ?? null,
+        welcomeMessage: welcomeMessage ?? null,
+      })
       .returning();
     config = c;
   }
