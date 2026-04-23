@@ -14,6 +14,8 @@ export const botConfigsTable = pgTable("bot_configs", {
   warrantyText: text("warranty_text"),
   supportText: text("support_text"),
   infoText: text("info_text"),
+  shopName: text("shop_name"),
+  welcomeMessage: text("welcome_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

@@ -432,6 +432,8 @@ export interface BotConfig {
   warrantyText?: string | null;
   supportText?: string | null;
   infoText?: string | null;
+  shopName?: string | null;
+  welcomeMessage?: string | null;
   updatedAt?: string | null;
 }
 
@@ -441,6 +443,8 @@ export interface SaveBotConfigRequest {
   warrantyText?: string | null;
   supportText?: string | null;
   infoText?: string | null;
+  shopName?: string | null;
+  welcomeMessage?: string | null;
 }
 
 export interface TestTokenRequest {

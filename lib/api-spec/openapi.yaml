@@ -2169,6 +2169,12 @@ components:
         infoText:
           type: string
           nullable: true
+        shopName:
+          type: string
+          nullable: true
+        welcomeMessage:
+          type: string
+          nullable: true
         updatedAt:
           type: string
           format: date-time
@@ -2191,6 +2197,12 @@ components:
           type: string
           nullable: true
         infoText:
+          type: string
+          nullable: true
+        shopName:
+          type: string
+          nullable: true
+        welcomeMessage:
           type: string
           nullable: true
       required:

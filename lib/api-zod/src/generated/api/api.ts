@@ -991,6 +991,8 @@ export const GetBotConfigResponse = zod.object({
   warrantyText: zod.string().nullish(),
   supportText: zod.string().nullish(),
   infoText: zod.string().nullish(),
+  shopName: zod.string().nullish(),
+  welcomeMessage: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -1003,6 +1005,8 @@ export const SaveBotConfigBody = zod.object({
   warrantyText: zod.string().nullish(),
   supportText: zod.string().nullish(),
   infoText: zod.string().nullish(),
+  shopName: zod.string().nullish(),
+  welcomeMessage: zod.string().nullish(),
 });
 
 export const SaveBotConfigResponse = zod.object({
@@ -1016,6 +1020,8 @@ export const SaveBotConfigResponse = zod.object({
   warrantyText: zod.string().nullish(),
   supportText: zod.string().nullish(),
   infoText: zod.string().nullish(),
+  shopName: zod.string().nullish(),
+  welcomeMessage: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
 

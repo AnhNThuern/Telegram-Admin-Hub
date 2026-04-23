@@ -42,12 +42,14 @@ router.get("/bot/config", requireAuth, async (_req, res): Promise<void> => {
     warrantyText: config.warrantyText,
     supportText: config.supportText,
     infoText: config.infoText,
+    shopName: config.shopName,
+    welcomeMessage: config.welcomeMessage,
     updatedAt: config.updatedAt,
   });
 });
 
 router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (req, res): Promise<void> => {
-  const { botToken, adminChatId, warrantyText, supportText, infoText } = req.body as z.infer<typeof SaveBotConfigBody>;
+  const { botToken, adminChatId, warrantyText, supportText, infoText, shopName, welcomeMessage } = req.body as z.infer<typeof SaveBotConfigBody>;
 
   const existing = await getConfig();
   let config;
@@ -71,6 +73,8 @@ router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (
     if (warrantyText !== undefined) updateData.warrantyText = warrantyText;
     if (supportText !== undefined) updateData.supportText = supportText;
     if (infoText !== undefined) updateData.infoText = infoText;
+    if (shopName !== undefined) updateData.shopName = shopName;
+    if (welcomeMessage !== undefined) updateData.welcomeMessage = welcomeMessage;
 
     if (Object.keys(updateData).length === 0) {
       // Nothing to change — return existing config without a DB write
@@ -97,6 +101,8 @@ router.post("/bot/config", requireAuth, validateBody(SaveBotConfigBody), async (
     isConnected: config.isConnected,
     webhookStatus: config.webhookStatus,
     adminChatId: config.adminChatId,
+    shopName: config.shopName,
+    welcomeMessage: config.welcomeMessage,
     updatedAt: config.updatedAt,
   });
 });

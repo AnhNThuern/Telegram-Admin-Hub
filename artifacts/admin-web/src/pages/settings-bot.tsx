@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Bot, Unplug, Plug, Activity, Eye, EyeOff, Play, Square, Keyboard } from "lucide-react";
+import { Loader2, Bot, Unplug, Plug, Activity, Eye, EyeOff, Play, Square, Keyboard, Store } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -31,6 +31,13 @@ const menuTextsSchema = z.object({
 });
 
 type MenuTextsValues = z.infer<typeof menuTextsSchema>;
+
+const welcomeSchema = z.object({
+  shopName: z.string().max(100, "Tối đa 100 ký tự").optional(),
+  welcomeMessage: z.string().max(1000, "Tối đa 1000 ký tự").optional(),
+});
+
+type WelcomeValues = z.infer<typeof welcomeSchema>;
 
 export default function SettingsBot() {
   const queryClient = useQueryClient();
@@ -63,6 +70,30 @@ export default function SettingsBot() {
     },
   });
 
+  const welcomeForm = useForm<WelcomeValues>({
+    resolver: zodResolver(welcomeSchema),
+    defaultValues: {
+      shopName: "",
+      welcomeMessage: "",
+    },
+  });
+
+  const watchedShopName = welcomeForm.watch("shopName");
+  const watchedWelcomeMessage = welcomeForm.watch("welcomeMessage");
+  const welcomeMessageLength = (watchedWelcomeMessage ?? "").length;
+
+  // Build a live preview of the welcome message
+  const welcomePreview = (() => {
+    const name = "Nguyễn Văn A";
+    const shop = watchedShopName?.trim() || "cửa hàng";
+    if (watchedWelcomeMessage?.trim()) {
+      return watchedWelcomeMessage
+        .replace(/\{name\}/g, name)
+        .replace(/\{shop_name\}/g, shop);
+    }
+    return `👋 Chào mừng ${name} đến với ${shop}!\n\nChọn tùy chọn bên dưới:`;
+  })();
+
   useEffect(() => {
     if (config) {
       form.reset({
@@ -74,8 +105,12 @@ export default function SettingsBot() {
         supportText: config.supportText || "",
         infoText: config.infoText || "",
       });
+      welcomeForm.reset({
+        shopName: config.shopName || "",
+        welcomeMessage: config.welcomeMessage || "",
+      });
     }
-  }, [config, form, menuTextsForm]);
+  }, [config, form, menuTextsForm, welcomeForm]);
 
   const getApiErrorMessage = (err: unknown): string => {
     if (err && typeof err === "object") {
@@ -98,6 +133,27 @@ export default function SettingsBot() {
           toast({ variant: "destructive", title: "Lưu thất bại", description: getApiErrorMessage(err) });
         },
       }
+    );
+  };
+
+  const onSaveWelcome = (data: WelcomeValues) => {
+    saveConfig.mutate(
+      {
+        data: {
+          botToken: config?.botToken || "",
+          shopName: data.shopName ?? "",
+          welcomeMessage: data.welcomeMessage ?? "",
+        },
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Đã lưu thông tin cửa hàng" });
+          queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
+        },
+        onError: (err) => {
+          toast({ variant: "destructive", title: "Lưu thất bại", description: getApiErrorMessage(err) });
+        },
+      },
     );
   };
 
@@ -384,6 +440,85 @@ export default function SettingsBot() {
           </CardFooter>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Store className="h-5 w-5 text-primary" />
+            Thông tin cửa hàng &amp; lời chào
+          </CardTitle>
+          <CardDescription>
+            Tuỳ chỉnh tên cửa hàng và lời chào hiển thị khi khách gõ <code>/start</code>.
+            Hỗ trợ biến <code>{"{name}"}</code> (tên khách) và <code>{"{shop_name}"}</code> (tên cửa hàng).
+            Để trống để dùng mặc định.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...welcomeForm}>
+            <form onSubmit={welcomeForm.handleSubmit(onSaveWelcome)} className="space-y-4">
+              <FormField
+                control={welcomeForm.control}
+                name="shopName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tên cửa hàng</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="VD: Shop Số Hóa 247"
+                        data-testid="input-shop-name"
+                        {...field}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">Hiển thị trong lời chào và thông báo của bot.</p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  control={welcomeForm.control}
+                  name="welcomeMessage"
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className="flex items-center justify-between">
+                        <FormLabel>Lời chào khi /start</FormLabel>
+                        <span className={`text-xs ${welcomeMessageLength > 900 ? "text-destructive" : "text-muted-foreground"}`}>
+                          {welcomeMessageLength}/1000
+                        </span>
+                      </div>
+                      <FormControl>
+                        <Textarea
+                          rows={8}
+                          placeholder={"👋 Chào mừng {name} đến với {shop_name}!\n\nChọn tùy chọn bên dưới:"}
+                          data-testid="textarea-welcome-message"
+                          {...field}
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Dùng <code>{"{name}"}</code> cho tên khách, <code>{"{shop_name}"}</code> cho tên cửa hàng.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="space-y-2">
+                  <p className="text-sm font-medium leading-none">Xem trước</p>
+                  <div className="rounded-md border border-border bg-accent/30 p-3 text-sm whitespace-pre-wrap min-h-[160px] text-muted-foreground font-mono leading-relaxed">
+                    {welcomePreview}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Đây là lời chào mẫu khách sẽ thấy (tên khách mẫu: Nguyễn Văn A).</p>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit" disabled={saveConfig.isPending} data-testid="btn-save-welcome">
+                  {saveConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Lưu thông tin cửa hàng
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

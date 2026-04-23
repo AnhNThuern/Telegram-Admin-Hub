@@ -157,7 +157,7 @@ interface TelegramUpdate {
   };
 }
 
-async function getBotConfig(): Promise<{ botToken: string | null; adminChatId: string | null; warrantyText: string | null; supportText: string | null; infoText: string | null }> {
+async function getBotConfig(): Promise<{ botToken: string | null; adminChatId: string | null; warrantyText: string | null; supportText: string | null; infoText: string | null; shopName: string | null; welcomeMessage: string | null }> {
   const { botConfigsTable } = await import("@workspace/db");
   const { desc } = await import("drizzle-orm");
   const [config] = await db.select().from(botConfigsTable).orderBy(desc(botConfigsTable.id)).limit(1);
@@ -167,6 +167,8 @@ async function getBotConfig(): Promise<{ botToken: string | null; adminChatId: s
     warrantyText: config?.warrantyText ?? null,
     supportText: config?.supportText ?? null,
     infoText: config?.infoText ?? null,
+    shopName: config?.shopName ?? null,
+    welcomeMessage: config?.welcomeMessage ?? null,
   };
 }
 
@@ -409,9 +411,23 @@ async function upsertCustomer(from: { id: number; first_name?: string; last_name
 
 async function showMainMenu(chatId: number | string, customerName?: string, editMessageId?: number): Promise<void> {
   const name = customerName ?? "bạn";
+  const { shopName, welcomeMessage } = await getBotConfig();
+
+  let welcomeText: string;
+  if (welcomeMessage && welcomeMessage.trim()) {
+    // Admin has configured a custom welcome message. Support {name} and {shop_name}
+    // placeholders so the message can be personalized without code changes.
+    welcomeText = welcomeMessage
+      .replace(/\{name\}/g, `<b>${name}</b>`)
+      .replace(/\{shop_name\}/g, shopName ? `<b>${shopName}</b>` : "cửa hàng");
+  } else {
+    const shop = shopName ? `<b>${shopName}</b>` : "cửa hàng";
+    welcomeText = `👋 Chào mừng <b>${name}</b> đến với ${shop}!\n\nChọn tùy chọn bên dưới:`;
+  }
+
   // Render the inline menu (in place when navigating). The persistent reply
   // keyboard is attached separately on /start so it survives across edits.
-  await renderView(chatId, editMessageId, `👋 Chào mừng <b>${name}</b> đến với cửa hàng!\n\nChọn tùy chọn bên dưới:`, {
+  await renderView(chatId, editMessageId, welcomeText, {
     reply_markup: {
       inline_keyboard: [
         [{ text: "🛍️ Xem sản phẩm", callback_data: "browse_products" }],
