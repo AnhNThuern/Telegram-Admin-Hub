@@ -323,7 +323,7 @@ export default function Products() {
                       {product.categoryId != null ? (
                         <span className="inline-flex items-center gap-1">
                           <span>{categoryMap.get(product.categoryId)?.icon ?? "📁"}</span>
-                          <span className="text-sm">{categoryMap.get(product.categoryId)?.name ?? ""}</span>
+                          <span className="text-sm">{categoryMap.get(product.categoryId)?.name ?? `#${product.categoryId}`}</span>
                         </span>
                       ) : (
                         <span className="text-muted-foreground text-sm">—</span>
