@@ -593,6 +593,9 @@ async function showProductDetail(chatId: number | string, productId: number, edi
     if (maxQ > minQ) {
       keyboard.push([{ text: "✏️ Nhập số lượng", callback_data: `qty_input_${productId}` }]);
     }
+  } else {
+    // Out of stock — offer the customer a way to request a restock notification
+    keyboard.push([{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }]);
   }
   // "Back" returns to the product list of the same category if known, otherwise to the
   // category list. We also always offer a quick way home.
@@ -1342,6 +1345,51 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         const productId = parseInt(data.replace("prod_", ""), 10);
         await showProductDetail(chatId, productId, messageId);
         await logBotAction("view_product", String(chatId), customer.id, `Product ${productId}`);
+      } else if (data.startsWith("stock_request_")) {
+        const productId = parseInt(data.replace("stock_request_", ""), 10);
+        const [product] = await db.select({
+          id: productsTable.id,
+          name: productsTable.name,
+          productIcon: productsTable.productIcon,
+        }).from(productsTable).where(eq(productsTable.id, productId));
+
+        if (!product) {
+          await renderView(chatId, messageId, "❌ Sản phẩm không còn tồn tại.", {
+            reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] },
+          });
+        } else {
+          await logBotAction("stock_request", String(chatId), customer.id,
+            `Stock request for product ${productId} (${product.name})`,
+            { productId, productName: product.name, customerName: from.first_name, customerUsername: from.username }
+          );
+
+          const customerLabel = from.username
+            ? `@${from.username} (${from.first_name})`
+            : `${from.first_name} [chat ${chatId}]`;
+          await sendAdminNotification(
+            `🔔 <b>Yêu cầu hàng mới</b>\n\n` +
+            `Khách hàng <b>${customerLabel}</b> muốn mua:\n` +
+            `${product.productIcon ?? "📦"} <b>${product.name}</b>\n\n` +
+            `Vui lòng nhập thêm hàng để đáp ứng nhu cầu.`,
+            { productId, customerId: customer.id, chatId: String(chatId) }
+          );
+
+          await renderView(
+            chatId,
+            messageId,
+            `✅ <b>Đã ghi nhận yêu cầu của bạn!</b>\n\n` +
+            `${product.productIcon ?? "📦"} <b>${product.name}</b> hiện đang hết hàng.\n\n` +
+            `Chúng tôi đã nhận được yêu cầu và sẽ bổ sung sớm nhất có thể. Hãy quay lại kiểm tra sau nhé! 🙏`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: "🔄 Kiểm tra lại", callback_data: `prod_${productId}` }],
+                  [{ text: "🛒 Xem sản phẩm khác", callback_data: "browse_products" }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+                ],
+              },
+            }
+          );
+        }
       } else if (data.startsWith("qty_input_")) {
         const productId = parseInt(data.replace("qty_input_", ""), 10);
         const { sql, count } = await import("drizzle-orm");
