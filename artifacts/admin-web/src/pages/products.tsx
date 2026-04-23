@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Box, Users, ArrowDown } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Box, Users, ArrowDown, ArrowUp } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -416,10 +416,18 @@ export default function Products() {
                   <TableHead>Danh mục</TableHead>
                   <TableHead>Giá bán</TableHead>
                   <TableHead>Tồn kho</TableHead>
-                  <TableHead className="whitespace-nowrap">
+                  <TableHead
+                    className="whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                    onClick={() => setOrderBy(orderBy === "stockRequestCount" ? "createdAt" : "stockRequestCount")}
+                    data-testid="th-sort-stock-request"
+                  >
                     <span className="inline-flex items-center gap-1">
                       Yêu cầu hàng mới
-                      {orderBy === "stockRequestCount" && <ArrowDown className="h-3.5 w-3.5 text-primary" data-testid="sort-icon-stock-request" />}
+                      {orderBy === "stockRequestCount" ? (
+                        <ArrowDown className="h-3.5 w-3.5 text-primary" data-testid="sort-icon-stock-request" />
+                      ) : (
+                        <ArrowUp className="h-3.5 w-3.5 text-muted-foreground/50" data-testid="sort-icon-created-at" />
+                      )}
                     </span>
                   </TableHead>
                   <TableHead>Trạng thái</TableHead>
