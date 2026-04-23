@@ -143,6 +143,7 @@ export interface Product {
   productIcon?: string | null;
   price: string;
   originalPrice?: string | null;
+  usdtPrice?: string | null;
   productType: string;
   minQuantity: number;
   maxQuantity: number;
@@ -162,6 +163,7 @@ export interface ProductDetail {
   productIcon?: string | null;
   price: string;
   originalPrice?: string | null;
+  usdtPrice?: string | null;
   productType: string;
   minQuantity: number;
   maxQuantity: number;
@@ -188,6 +190,7 @@ export interface CreateProductRequest {
   productIcon?: string;
   price: string;
   originalPrice?: string;
+  usdtPrice?: string | null;
   productType?: string;
   minQuantity?: number;
   maxQuantity?: number;
@@ -202,6 +205,7 @@ export interface UpdateProductRequest {
   productIcon?: string;
   price?: string;
   originalPrice?: string;
+  usdtPrice?: string | null;
   productType?: string;
   minQuantity?: number;
   maxQuantity?: number;
@@ -534,6 +538,11 @@ export interface PaymentConfig {
   /** Public URL admins should configure in SePay's webhook settings. Computed from REPLIT_DOMAINS at request time. */
   webhookUrl?: string | null;
   isActive: boolean;
+  binanceApiKey?: string | null;
+  binanceApiSecret?: string | null;
+  binanceMerchantTradeNoPrefix?: string | null;
+  binanceIsActive: boolean;
+  binanceWebhookUrl?: string | null;
   updatedAt?: string | null;
 }
 
@@ -545,6 +554,15 @@ export interface SavePaymentConfigRequest {
   webhookSecret?: string;
   apiKey?: string;
   isActive?: boolean;
+  binanceApiKey?: string;
+  binanceApiSecret?: string;
+  binanceMerchantTradeNoPrefix?: string;
+  binanceIsActive?: boolean;
+}
+
+export interface BinanceTestConnectionResponse {
+  success: boolean;
+  error?: string | null;
 }
 
 export interface SystemSettings {

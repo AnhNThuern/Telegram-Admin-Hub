@@ -1118,6 +1118,7 @@ async function showOrderConfirmScreen(
     id: productsTable.id,
     name: productsTable.name,
     price: productsTable.price,
+    usdtPrice: productsTable.usdtPrice,
     minQuantity: productsTable.minQuantity,
     maxQuantity: productsTable.maxQuantity,
   }).from(productsTable).where(eq(productsTable.id, productId));
@@ -1200,6 +1201,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       id: productsTable.id,
       name: productsTable.name,
       price: productsTable.price,
+      usdtPrice: productsTable.usdtPrice,
       minQuantity: productsTable.minQuantity,
       maxQuantity: productsTable.maxQuantity,
     }).from(productsTable).where(eq(productsTable.id, productId)).then(r => r[0]),
@@ -1374,10 +1376,14 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     ? strings["order.subtotal_line"].replace("{amount}", subtotalFormatted) + "\n" + promoLine
     : "";
 
-  // Check customer's wallet balance
+  // Check customer's wallet balance and Binance Pay availability
   const [customer] = await db.select({ balance: customersTable.balance }).from(customersTable).where(eq(customersTable.id, customerId));
   const customerBalance = customer ? parseFloat(customer.balance) : 0;
   const orderTotal = parseFloat(totalAmount);
+
+  const { getBinancePayConfig } = await import("./binance-pay");
+  const binanceCfg = await getBinancePayConfig();
+  const binanceAvailable = !!(binanceCfg?.binanceIsActive && product.usdtPrice);
 
   const orderCreatedHeader = shopName
     ? (lang === "en"
@@ -1386,7 +1392,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     : strings["order.created"].replace("{code}", orderCode);
 
   if (customerBalance >= orderTotal) {
-    // Offer both payment methods
+    // Offer payment methods: wallet, bank transfer, and optionally Binance Pay
     const balanceFormatted = customerBalance.toLocaleString("vi-VN");
     let msg = orderCreatedHeader + "\n\n";
     msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
@@ -1395,20 +1401,44 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     msg += strings["order.wallet_balance_line"].replace("{balance}", balanceFormatted) + "\n\n";
     msg += strings["order.payment_choice"];
 
+    const keyboard: Array<Array<{ text: string; callback_data: string }>> = [
+      [{ text: `${strings["btn.pay_wallet"]} (${balanceFormatted}${amountSuffix})`, callback_data: `pay_with_balance_${order.id}` }],
+      [{ text: strings["btn.pay_bank"], callback_data: `show_bank_transfer_${order.id}` }],
+    ];
+    if (binanceAvailable) {
+      keyboard.push([{ text: `💰 USDT via Binance Pay ($${parseFloat(product.usdtPrice!).toFixed(2)})`, callback_data: `show_binance_pay_${order.id}` }]);
+    }
+    keyboard.push([{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }]);
+
+    await sendMessage(chatId, msg, { reply_markup: { inline_keyboard: keyboard } });
+    await logBotAction("payment_choice_offered", String(chatId), customerId, `Wallet/bank/binance for order ${orderCode}`, { orderId: order.id });
+    return;
+  }
+
+  // Balance insufficient — show bank transfer details directly (with Binance Pay option if available)
+  if (binanceAvailable) {
+    // Offer both bank transfer and Binance Pay
+    let msg = orderCreatedHeader + "\n\n";
+    msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
+    msg += subtotalLine;
+    msg += strings["order.total_line"].replace("{amount}", amountFormatted) + "\n\n";
+    msg += lang === "en"
+      ? "Please choose your payment method:"
+      : "Vui lòng chọn phương thức thanh toán:";
+
     await sendMessage(chatId, msg, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: `${strings["btn.pay_wallet"]} (${balanceFormatted}${amountSuffix})`, callback_data: `pay_with_balance_${order.id}` }],
           [{ text: strings["btn.pay_bank"], callback_data: `show_bank_transfer_${order.id}` }],
+          [{ text: `💰 USDT via Binance Pay ($${parseFloat(product.usdtPrice!).toFixed(2)})`, callback_data: `show_binance_pay_${order.id}` }],
           [{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }],
         ],
       },
     });
-    await logBotAction("payment_choice_offered", String(chatId), customerId, `Wallet vs bank for order ${orderCode}`, { orderId: order.id });
+    await logBotAction("payment_choice_offered", String(chatId), customerId, `Bank/binance for order ${orderCode}`, { orderId: order.id });
     return;
   }
 
-  // Balance insufficient — show bank transfer details directly
   const { createPaymentRequest } = await import("./payments");
   const paymentInfo = await createPaymentRequest(order.id);
 
@@ -1591,6 +1621,131 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
     }
   } else {
     await sendMessage(chatId, msg, { reply_markup: cancelKeyboard });
+  }
+}
+
+async function sendBinancePayForOrder(chatId: number | string, orderId: number, customerId: number, lang: Lang = "vi"): Promise<void> {
+  const [order] = await db.select().from(ordersTable).where(
+    and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
+  );
+
+  const cancelBtnText = await t("btn.cancel_order", lang);
+  const cancelKb = { inline_keyboard: [[{ text: cancelBtnText, callback_data: `cancel_order_${orderId}` }]] };
+
+  if (!order || order.status !== "pending") {
+    const invalidMsg = lang === "en"
+      ? "❌ This order is no longer valid for payment."
+      : "❌ Đơn hàng này không còn hợp lệ để thanh toán.";
+    await sendMessage(chatId, invalidMsg, { reply_markup: cancelKb });
+    return;
+  }
+
+  const { createBinancePayOrder, getBinancePayConfig } = await import("./binance-pay");
+  const binanceCfg = await getBinancePayConfig();
+
+  if (!binanceCfg?.binanceIsActive) {
+    const unavailableMsg = lang === "en"
+      ? "⚠️ Binance Pay is currently unavailable. Please choose another payment method."
+      : "⚠️ Binance Pay hiện không khả dụng. Vui lòng chọn phương thức khác.";
+    await sendMessage(chatId, unavailableMsg, { reply_markup: cancelKb });
+    return;
+  }
+
+  // Check if there's already a pending Binance Pay transaction for this order
+  const [existingBinanceTxn] = await db.select()
+    .from(transactionsTable)
+    .where(and(
+      eq(transactionsTable.orderId, orderId),
+      eq(transactionsTable.type, "payment"),
+      eq(transactionsTable.status, "pending"),
+    ))
+    .limit(1);
+
+  if (existingBinanceTxn?.binancePrepayId) {
+    const usdtAmount = existingBinanceTxn.amount;
+    const msg = lang === "en"
+      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nOpen Binance app and complete payment.\n\n⏰ Complete it before it expires.`
+      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nMở ứng dụng Binance để hoàn tất thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn.`;
+    await sendMessage(chatId, msg, { reply_markup: cancelKb });
+    return;
+  }
+
+  // Fetch product usdtPrice from the order items
+  const [item] = await db.select({
+    productId: orderItemsTable.productId,
+    quantity: orderItemsTable.quantity,
+  }).from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId)).limit(1);
+
+  if (!item) {
+    await sendMessage(chatId, lang === "en" ? "❌ Order item not found." : "❌ Không tìm thấy chi tiết đơn hàng.", { reply_markup: cancelKb });
+    return;
+  }
+
+  const [product] = await db.select({ usdtPrice: productsTable.usdtPrice, name: productsTable.name })
+    .from(productsTable).where(eq(productsTable.id, item.productId));
+
+  if (!product?.usdtPrice) {
+    const noUsdtMsg = lang === "en"
+      ? "⚠️ This product does not have a USDT price."
+      : "⚠️ Sản phẩm này chưa có giá USDT.";
+    await sendMessage(chatId, noUsdtMsg, { reply_markup: cancelKb });
+    return;
+  }
+
+  const usdtAmount = (parseFloat(product.usdtPrice) * item.quantity).toFixed(6);
+
+  try {
+    const prepayResult = await createBinancePayOrder({
+      apiKey: binanceCfg.apiKey,
+      apiSecret: binanceCfg.apiSecret,
+      merchantTradeNo: `${binanceCfg.merchantTradeNoPrefix}${order.orderCode}`,
+      orderAmount: usdtAmount,
+      goodsName: product.name,
+      goodsId: String(item.productId),
+    });
+
+    // Save the prepay ID in transactions table
+    const binanceTxCode = `BP${order.orderCode}`;
+    await db.insert(transactionsTable).values({
+      transactionCode: binanceTxCode,
+      orderId: order.id,
+      type: "payment",
+      status: "pending",
+      amount: usdtAmount,
+      provider: "binance",
+      binancePrepayId: prepayResult.prepayId,
+      paymentReference: order.orderCode,
+    });
+
+    const qrContent = prepayResult.qrcodeLink ?? null;
+
+    const msg = lang === "en"
+      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nScan the QR code in your Binance app to pay.\n\n⏰ Complete payment before it expires.`
+      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nQuét mã QR bằng ứng dụng Binance để thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn.`;
+
+    if (qrContent) {
+      const sent = await sendPhoto(chatId, qrContent, msg, cancelKb);
+      if (!sent) await sendMessage(chatId, msg, { reply_markup: cancelKb });
+    } else {
+      await sendMessage(chatId, msg, { reply_markup: cancelKb });
+    }
+
+    await logBotAction("binance_pay_initiated", String(chatId), customerId,
+      `Binance Pay for order ${order.orderCode}`, { orderId, usdtAmount, prepayId: prepayResult.prepayId });
+
+  } catch (err) {
+    const errMsg = lang === "en"
+      ? "❌ Could not create Binance Pay order. Please try bank transfer instead."
+      : "❌ Không thể tạo lệnh Binance Pay. Vui lòng chọn chuyển khoản ngân hàng.";
+    await sendMessage(chatId, errMsg, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: lang === "en" ? "🏦 Bank Transfer" : "🏦 Chuyển khoản ngân hàng", callback_data: `show_bank_transfer_${orderId}` }],
+          [{ text: cancelBtnText, callback_data: `cancel_order_${orderId}` }],
+        ],
+      },
+    });
+    console.error("Binance Pay order creation failed:", err);
   }
 }
 
@@ -2638,6 +2793,9 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       } else if (data.startsWith("show_bank_transfer_")) {
         const orderId = parseInt(data.replace("show_bank_transfer_", ""), 10);
         await sendBankTransferForOrder(chatId, orderId, customer.id, lang);
+      } else if (data.startsWith("show_binance_pay_")) {
+        const orderId = parseInt(data.replace("show_binance_pay_", ""), 10);
+        await sendBinancePayForOrder(chatId, orderId, customer.id, lang);
       } else if (data.startsWith("topup_amount_")) {
         const amount = parseInt(data.replace("topup_amount_", ""), 10);
         if (isNaN(amount) || amount <= 0) {

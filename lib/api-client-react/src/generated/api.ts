@@ -79,6 +79,7 @@ import type {
   UpdateProductRequest,
   UpdatePromotionRequest,
   UpdateSystemSettingsRequest,
+  BinanceTestConnectionResponse,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -4553,6 +4554,84 @@ export type HandleSepayWebhookMutationResult = NonNullable<
 >;
 export type HandleSepayWebhookMutationBody = BodyType<HandleSepayWebhookBody>;
 export type HandleSepayWebhookMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Binance Pay webhook
+ */
+export const getHandleBinanceWebhookUrl = () => {
+  return `/api/payments/binance/webhook`;
+};
+
+/**
+ * @summary Test Binance Pay connection
+ */
+export const getTestBinanceConnectionUrl = () => {
+  return `/api/payments/binance/test-connection`;
+};
+
+export const testBinanceConnection = async (
+  options?: RequestInit,
+): Promise<BinanceTestConnectionResponse> => {
+  return customFetch<BinanceTestConnectionResponse>(getTestBinanceConnectionUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getTestBinanceConnectionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof testBinanceConnection>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof testBinanceConnection>>,
+  TError,
+  void,
+  TContext
+> => {
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof testBinanceConnection>>,
+    void
+  > = () => {
+    return testBinanceConnection(requestOptions);
+  };
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TestBinanceConnectionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof testBinanceConnection>>
+>;
+export type TestBinanceConnectionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Test Binance Pay credentials
+ */
+export const useTestBinanceConnection = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof testBinanceConnection>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof testBinanceConnection>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getTestBinanceConnectionMutationOptions(options));
+};
 
 /**
  * @summary SePay payment webhook

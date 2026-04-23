@@ -14,6 +14,7 @@ export const transactionsTable = pgTable("transactions", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   status: text("status").notNull().default("pending"),
   provider: text("provider").default("sepay"),
+  binancePrepayId: text("binance_prepay_id"),
   rawPayload: text("raw_payload"),
   notes: text("notes"),
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }),

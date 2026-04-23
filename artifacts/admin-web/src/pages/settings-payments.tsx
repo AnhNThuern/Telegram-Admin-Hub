@@ -1,10 +1,9 @@
-import { useGetPaymentConfig, useSavePaymentConfig, getGetPaymentConfigQueryKey } from "@workspace/api-client-react";
-import { useEffect } from "react";
+import { useGetPaymentConfig, useSavePaymentConfig, useTestBinanceConnection, getGetPaymentConfigQueryKey } from "@workspace/api-client-react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, CreditCard, Copy, Check, Webhook, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { Loader2, CreditCard, Copy, Check, Webhook, ShieldCheck, Bitcoin, Wifi } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -12,6 +11,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 const paymentSchema = z.object({
   bankName: z.string().min(1, "Tên ngân hàng là bắt buộc"),
@@ -23,18 +23,28 @@ const paymentSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
+const binanceSchema = z.object({
+  binanceApiKey: z.string().optional(),
+  binanceApiSecret: z.string().optional(),
+  binanceMerchantTradeNoPrefix: z.string().optional(),
+  binanceIsActive: z.boolean().default(false),
+});
+
 type PaymentFormValues = z.infer<typeof paymentSchema>;
+type BinanceFormValues = z.infer<typeof binanceSchema>;
 
 export default function SettingsPayments() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
-  
+  const [copiedBinance, setCopiedBinance] = useState(false);
+
   const { data: config, isLoading } = useGetPaymentConfig({
     query: { queryKey: getGetPaymentConfigQueryKey() }
   });
 
   const saveConfig = useSavePaymentConfig();
+  const testBinance = useTestBinanceConnection();
 
   const form = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
@@ -49,6 +59,16 @@ export default function SettingsPayments() {
     },
   });
 
+  const binanceForm = useForm<BinanceFormValues>({
+    resolver: zodResolver(binanceSchema),
+    defaultValues: {
+      binanceApiKey: "",
+      binanceApiSecret: "",
+      binanceMerchantTradeNoPrefix: "",
+      binanceIsActive: false,
+    },
+  });
+
   useEffect(() => {
     if (config) {
       form.reset({
@@ -60,8 +80,14 @@ export default function SettingsPayments() {
         webhookSecret: "",
         isActive: config.isActive,
       });
+      binanceForm.reset({
+        binanceApiKey: "",
+        binanceApiSecret: "",
+        binanceMerchantTradeNoPrefix: config.binanceMerchantTradeNoPrefix || "",
+        binanceIsActive: config.binanceIsActive ?? false,
+      });
     }
-  }, [config, form]);
+  }, [config, form, binanceForm]);
 
   const isMasked = (val: string) => /^\*+$/.test(val.trim());
 
@@ -90,6 +116,47 @@ export default function SettingsPayments() {
     );
   };
 
+  const onBinanceSubmit = (data: BinanceFormValues) => {
+    const payload: Record<string, unknown> = {
+      binanceIsActive: data.binanceIsActive,
+      binanceMerchantTradeNoPrefix: data.binanceMerchantTradeNoPrefix || undefined,
+    };
+    if (data.binanceApiKey && !isMasked(data.binanceApiKey)) payload.binanceApiKey = data.binanceApiKey;
+    if (data.binanceApiSecret && !isMasked(data.binanceApiSecret)) payload.binanceApiSecret = data.binanceApiSecret;
+
+    saveConfig.mutate(
+      { data: payload as Parameters<typeof saveConfig.mutate>[0]['data'] },
+      {
+        onSuccess: () => {
+          toast({ title: "✓ Đã lưu cấu hình Binance Pay", description: "Cài đặt Binance Pay đã được cập nhật thành công." });
+          queryClient.invalidateQueries({ queryKey: getGetPaymentConfigQueryKey() });
+        },
+        onError: () => {
+          toast({ title: "Lưu thất bại", description: "Không thể lưu cấu hình. Vui lòng thử lại.", variant: "destructive" });
+        },
+      }
+    );
+  };
+
+  const handleTestBinance = () => {
+    testBinance.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.success) {
+          toast({ title: "✓ Kết nối Binance Pay thành công", description: "Thông tin xác thực API hợp lệ." });
+        } else {
+          toast({
+            title: "Kết nối thất bại",
+            description: result.error || "Thông tin xác thực không hợp lệ.",
+            variant: "destructive",
+          });
+        }
+      },
+      onError: () => {
+        toast({ title: "Lỗi kết nối", description: "Không thể kết nối tới Binance Pay.", variant: "destructive" });
+      },
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -99,6 +166,8 @@ export default function SettingsPayments() {
   }
 
   const webhookUrl = config?.webhookUrl ?? null;
+  const binanceWebhookUrl = config?.binanceWebhookUrl ?? null;
+
   const handleCopyWebhook = async () => {
     if (!webhookUrl) return;
     try {
@@ -111,11 +180,23 @@ export default function SettingsPayments() {
     }
   };
 
+  const handleCopyBinanceWebhook = async () => {
+    if (!binanceWebhookUrl) return;
+    try {
+      await navigator.clipboard.writeText(binanceWebhookUrl);
+      setCopiedBinance(true);
+      toast({ title: "Đã sao chép URL webhook Binance" });
+      setTimeout(() => setCopiedBinance(false), 2000);
+    } catch {
+      toast({ title: "Không thể sao chép", description: "Vui lòng chọn và sao chép thủ công.", variant: "destructive" });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Cấu hình Thanh toán</h1>
-        <p className="text-muted-foreground mt-1">Cài đặt API SePay để nhận thanh toán tự động.</p>
+        <p className="text-muted-foreground mt-1">Cài đặt API SePay và Binance Pay để nhận thanh toán tự động.</p>
       </div>
 
       <Card className="max-w-2xl" data-testid="card-sepay-webhook">
@@ -293,6 +374,167 @@ export default function SettingsPayments() {
                 {saveConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Lưu cấu hình
               </Button>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-2xl" data-testid="card-binance-pay">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bitcoin className="h-5 w-5 text-amber-500" />
+            Cấu hình Binance Pay (USDT)
+            {config?.binanceIsActive && (
+              <Badge variant="default" className="ml-2 bg-emerald-600 text-white text-xs">Đang bật</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Cho phép khách hàng thanh toán bằng USDT qua Binance Pay. Sản phẩm cần được cài giá USDT riêng.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {binanceWebhookUrl && (
+            <div>
+              <p className="text-sm font-medium mb-1.5">Webhook URL Binance Pay</p>
+              <div className="flex gap-2">
+                <Input
+                  readOnly
+                  value={binanceWebhookUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="font-mono text-sm"
+                  data-testid="input-binance-webhook-url"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleCopyBinanceWebhook}
+                  data-testid="button-copy-binance-webhook"
+                >
+                  {copiedBinance ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  <span className="ml-2 hidden sm:inline">{copiedBinance ? "Đã copy" : "Sao chép"}</span>
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Dán URL này vào cài đặt Webhook của Binance Merchant.</p>
+            </div>
+          )}
+
+          <Form {...binanceForm}>
+            <form onSubmit={binanceForm.handleSubmit(onBinanceSubmit)} className="space-y-4">
+              <FormField
+                control={binanceForm.control}
+                name="binanceApiKey"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Binance API Key</FormLabel>
+                    {config?.binanceApiKey && (
+                      <div className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 font-medium">
+                        <ShieldCheck className="h-4 w-4 shrink-0" />
+                        <span>API key đã được lưu ({config.binanceApiKey})</span>
+                      </div>
+                    )}
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder={config?.binanceApiKey ? "Nhập key mới để thay thế" : "API Key từ Binance Merchant"}
+                        {...field}
+                        data-testid="input-binance-api-key"
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">Để trống để giữ nguyên key hiện tại.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={binanceForm.control}
+                name="binanceApiSecret"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Binance API Secret</FormLabel>
+                    {config?.binanceApiSecret && (
+                      <div className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 font-medium">
+                        <ShieldCheck className="h-4 w-4 shrink-0" />
+                        <span>Secret đã được lưu ({config.binanceApiSecret})</span>
+                      </div>
+                    )}
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder={config?.binanceApiSecret ? "Nhập secret mới để thay thế" : "API Secret từ Binance Merchant"}
+                        {...field}
+                        data-testid="input-binance-api-secret"
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">Để trống để giữ nguyên secret hiện tại.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={binanceForm.control}
+                name="binanceMerchantTradeNoPrefix"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Prefix mã đơn hàng (Tùy chọn)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="VD: SHOP" {...field} data-testid="input-binance-prefix" />
+                    </FormControl>
+                    <FormDescription className="text-xs">Tiền tố cho mã đơn hàng Binance Pay (mặc định: rỗng).</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={binanceForm.control}
+                name="binanceIsActive"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border border-border p-4 bg-accent/30">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">Kích hoạt Binance Pay</FormLabel>
+                      <CardDescription>
+                        Hiển thị nút thanh toán USDT trên Bot khi sản phẩm có giá USDT
+                      </CardDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        data-testid="switch-binance-active"
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleTestBinance}
+                  disabled={testBinance.isPending}
+                  data-testid="button-test-binance"
+                  className="flex-1"
+                >
+                  {testBinance.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wifi className="mr-2 h-4 w-4" />
+                  )}
+                  Kiểm tra kết nối
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={saveConfig.isPending}
+                  data-testid="button-save-binance"
+                  className="flex-1"
+                >
+                  {saveConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Lưu cấu hình Binance
+                </Button>
+              </div>
             </form>
           </Form>
         </CardContent>

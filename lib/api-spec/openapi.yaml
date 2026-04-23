@@ -1176,6 +1176,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentConfig"
 
+  /payments/binance/webhook:
+    post:
+      operationId: handleBinanceWebhook
+      tags: [payments]
+      summary: Binance Pay payment webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /payments/binance/test-connection:
+    post:
+      operationId: testBinanceConnection
+      tags: [payments]
+      summary: Test Binance Pay credentials
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BinanceTestConnectionResponse"
+
   /payments/sepay/webhook:
     post:
       operationId: handleSepayWebhook
@@ -1556,6 +1588,10 @@ components:
         originalPrice:
           type: string
           nullable: true
+        usdtPrice:
+          type: string
+          nullable: true
+          description: USDT price (null = USDT payment not available for this product)
         productType:
           type: string
         minQuantity:
@@ -1611,6 +1647,10 @@ components:
         originalPrice:
           type: string
           nullable: true
+        usdtPrice:
+          type: string
+          nullable: true
+          description: USDT price (null = USDT payment not available for this product)
         productType:
           type: string
         minQuantity:
@@ -1681,6 +1721,9 @@ components:
           type: string
         originalPrice:
           type: string
+        usdtPrice:
+          type: string
+          nullable: true
         productType:
           type: string
         minQuantity:
@@ -1710,6 +1753,9 @@ components:
           type: string
         originalPrice:
           type: string
+        usdtPrice:
+          type: string
+          nullable: true
         productType:
           type: string
         minQuantity:
@@ -2576,6 +2622,20 @@ components:
           description: Public URL admins should configure in SePay's webhook settings. Computed from REPLIT_DOMAINS at request time.
         isActive:
           type: boolean
+        binanceApiKey:
+          type: string
+          nullable: true
+        binanceApiSecret:
+          type: string
+          nullable: true
+        binanceMerchantTradeNoPrefix:
+          type: string
+          nullable: true
+        binanceIsActive:
+          type: boolean
+        binanceWebhookUrl:
+          type: string
+          nullable: true
         updatedAt:
           type: string
           format: date-time
@@ -2583,6 +2643,7 @@ components:
       required:
         - provider
         - isActive
+        - binanceIsActive
 
     SavePaymentConfigRequest:
       type: object
@@ -2601,6 +2662,25 @@ components:
           type: string
         isActive:
           type: boolean
+        binanceApiKey:
+          type: string
+        binanceApiSecret:
+          type: string
+        binanceMerchantTradeNoPrefix:
+          type: string
+        binanceIsActive:
+          type: boolean
+
+    BinanceTestConnectionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+      required:
+        - success
 
     SystemSettings:
       type: object

@@ -178,6 +178,7 @@ export const ListProductsResponse = zod.object({
       productIcon: zod.string().nullish(),
       price: zod.string(),
       originalPrice: zod.string().nullish(),
+      usdtPrice: zod.string().nullish(),
       productType: zod.string(),
       minQuantity: zod.number(),
       maxQuantity: zod.number(),
@@ -204,6 +205,7 @@ export const CreateProductBody = zod.object({
   productIcon: zod.string().optional(),
   price: zod.string(),
   originalPrice: zod.string().optional(),
+  usdtPrice: zod.string().nullish(),
   productType: zod.string().optional(),
   minQuantity: zod.number().optional(),
   maxQuantity: zod.number().optional(),
@@ -226,6 +228,7 @@ export const GetProductResponse = zod.object({
   productIcon: zod.string().nullish(),
   price: zod.string(),
   originalPrice: zod.string().nullish(),
+  usdtPrice: zod.string().nullish(),
   productType: zod.string(),
   minQuantity: zod.number(),
   maxQuantity: zod.number(),
@@ -261,6 +264,7 @@ export const UpdateProductBody = zod.object({
   productIcon: zod.string().optional(),
   price: zod.string().optional(),
   originalPrice: zod.string().optional(),
+  usdtPrice: zod.string().nullish(),
   productType: zod.string().optional(),
   minQuantity: zod.number().optional(),
   maxQuantity: zod.number().optional(),
@@ -276,6 +280,7 @@ export const UpdateProductResponse = zod.object({
   productIcon: zod.string().nullish(),
   price: zod.string(),
   originalPrice: zod.string().nullish(),
+  usdtPrice: zod.string().nullish(),
   productType: zod.string(),
   minQuantity: zod.number(),
   maxQuantity: zod.number(),
@@ -1190,6 +1195,11 @@ export const GetPaymentConfigResponse = zod.object({
       "Public URL admins should configure in SePay's webhook settings. Computed from REPLIT_DOMAINS at request time.",
     ),
   isActive: zod.boolean(),
+  binanceApiKey: zod.string().nullish(),
+  binanceApiSecret: zod.string().nullish(),
+  binanceMerchantTradeNoPrefix: zod.string().nullish(),
+  binanceIsActive: zod.boolean(),
+  binanceWebhookUrl: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -1204,6 +1214,10 @@ export const SavePaymentConfigBody = zod.object({
   webhookSecret: zod.string().optional(),
   apiKey: zod.string().optional(),
   isActive: zod.boolean().optional(),
+  binanceApiKey: zod.string().optional(),
+  binanceApiSecret: zod.string().optional(),
+  binanceMerchantTradeNoPrefix: zod.string().optional(),
+  binanceIsActive: zod.boolean().optional(),
 });
 
 export const SavePaymentConfigResponse = zod.object({
@@ -1222,6 +1236,11 @@ export const SavePaymentConfigResponse = zod.object({
       "Public URL admins should configure in SePay's webhook settings. Computed from REPLIT_DOMAINS at request time.",
     ),
   isActive: zod.boolean(),
+  binanceApiKey: zod.string().nullish(),
+  binanceApiSecret: zod.string().nullish(),
+  binanceMerchantTradeNoPrefix: zod.string().nullish(),
+  binanceIsActive: zod.boolean(),
+  binanceWebhookUrl: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -1232,6 +1251,14 @@ export const HandleSepayWebhookBody = zod.object({}).passthrough();
 
 export const HandleSepayWebhookResponse = zod.object({
   message: zod.string(),
+});
+
+/**
+ * @summary Test Binance Pay credentials
+ */
+export const TestBinanceConnectionResponse = zod.object({
+  success: zod.boolean(),
+  error: zod.string().nullish(),
 });
 
 /**
