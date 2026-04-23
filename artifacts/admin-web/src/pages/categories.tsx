@@ -1,7 +1,6 @@
 import { useListCategories, useCreateCategory, useUpdateCategory, useDeleteCategory, getListCategoriesQueryKey, Category } from "@workspace/api-client-react";
 import { useState } from "react";
-import { formatVND } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +14,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
+const SUGGESTED_ICONS = ["🎮", "🎁", "💻", "📱", "🔑", "🛒", "🎵", "📺", "🎬", "🔧", "💎", "🏆", "📦", "🌟", "🎯", "🖥️", "⌚", "📷", "🎧", "🧩"];
+
 const categorySchema = z.object({
   name: z.string().min(1, "Tên danh mục là bắt buộc"),
+  icon: z.string().max(10, "Icon quá dài").optional().or(z.literal("")),
   isActive: z.boolean().default(true),
 });
 
@@ -37,14 +39,20 @@ export default function Categories() {
     resolver: zodResolver(categorySchema),
     defaultValues: {
       name: "",
+      icon: "",
       isActive: true,
     },
   });
 
   const onSubmit = (data: CategoryFormValues) => {
+    const payload = {
+      name: data.name,
+      icon: data.icon || undefined,
+      isActive: data.isActive,
+    };
     if (editingId) {
       updateCategory.mutate(
-        { id: editingId, data },
+        { id: editingId, data: payload },
         {
           onSuccess: () => {
             toast({ title: "Đã cập nhật danh mục" });
@@ -56,7 +64,7 @@ export default function Categories() {
       );
     } else {
       createCategory.mutate(
-        { data },
+        { data: payload },
         {
           onSuccess: () => {
             toast({ title: "Đã tạo danh mục" });
@@ -71,7 +79,7 @@ export default function Categories() {
 
   const handleEdit = (category: Category) => {
     setEditingId(category.id);
-    form.reset({ name: category.name, isActive: category.isActive });
+    form.reset({ name: category.name, icon: category.icon ?? "", isActive: category.isActive });
     setIsAddOpen(true);
   };
 
@@ -122,6 +130,46 @@ export default function Categories() {
                 />
                 <FormField
                   control={form.control}
+                  name="icon"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Icon (emoji)</FormLabel>
+                      <FormControl>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              placeholder="VD: 🎮"
+                              maxLength={10}
+                              {...field}
+                              data-testid="input-category-icon"
+                              className="w-24 text-center text-xl"
+                            />
+                            {field.value && (
+                              <span className="text-2xl leading-none">{field.value}</span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5" data-testid="icon-suggestions">
+                            {SUGGESTED_ICONS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => field.onChange(emoji)}
+                                className={`rounded-md border px-2 py-1 text-lg transition-colors hover:bg-accent ${field.value === emoji ? "border-primary bg-accent" : "border-border"}`}
+                                data-testid={`icon-chip-${emoji}`}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </FormControl>
+                      <FormDescription>Chọn từ gợi ý hoặc nhập emoji trực tiếp. Để trống để dùng icon mặc định 📁.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name="isActive"
                   render={({ field }) => (
                     <FormItem className="flex items-center justify-between rounded-md border border-border px-3 py-2">
@@ -156,6 +204,7 @@ export default function Categories() {
               <TableHeader>
                 <TableRow>
                   <TableHead>ID</TableHead>
+                  <TableHead>Icon</TableHead>
                   <TableHead>Tên danh mục</TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead className="text-right">Thao tác</TableHead>
@@ -165,6 +214,9 @@ export default function Categories() {
                 {categoryList?.data?.map((category) => (
                   <TableRow key={category.id} data-testid={`row-category-${category.id}`}>
                     <TableCell className="font-mono text-xs">{category.id}</TableCell>
+                    <TableCell className="text-xl" data-testid={`icon-category-${category.id}`}>
+                      {category.icon || "📁"}
+                    </TableCell>
                     <TableCell className="font-medium">{category.name}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${category.isActive ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"}`}>
@@ -185,7 +237,7 @@ export default function Categories() {
                 ))}
                 {categoryList?.data?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                       Chưa có danh mục nào.
                     </TableCell>
                   </TableRow>
