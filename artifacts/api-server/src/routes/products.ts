@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, and, sql, count, or, lt } from "drizzle-orm";
-import { db, productsTable, productStocksTable, categoriesTable, ordersTable, orderItemsTable, botLogsTable, customersTable } from "@workspace/db";
+import { eq, ilike, and, sql, count, or, lt, desc } from "drizzle-orm";
+import { db, productsTable, productStocksTable, categoriesTable, ordersTable, orderItemsTable, botLogsTable, customersTable, notificationLogsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateBody, validateParams, validateQuery } from "../middlewares/validate";
 import { deliverOrder, sendAdminNotification, sendMessageToCustomer, broadcastProductNotification } from "../lib/bot";
@@ -18,6 +18,9 @@ import {
   AddProductStocksBody,
   DeleteStockParams,
   NotifyProductRestockedParams,
+  NotifyProductRestockedBody,
+  GetNotifyEstimateParams,
+  GetNotifyEstimateQueryParams,
   ListProductStockRequestsParams,
 } from "@workspace/api-zod";
 import type z from "zod";
@@ -75,7 +78,8 @@ router.get("/products", requireAuth, validateQuery(ListProductsQueryParams), asy
 });
 
 router.post("/products", requireAuth, validateBody(CreateProductBody), async (req, res): Promise<void> => {
-  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = req.body as z.infer<typeof CreateProductBody>;
+  const body = req.body as z.infer<typeof CreateProductBody>;
+  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = body;
   const [product] = await db.insert(productsTable).values({
     name,
     description,
@@ -131,7 +135,8 @@ router.get("/products/:id", requireAuth, validateParams(GetProductParams), async
 
 router.patch("/products/:id", requireAuth, validateParams(UpdateProductParams), validateBody(UpdateProductBody), async (req, res): Promise<void> => {
   const { id } = req.params as unknown as z.infer<typeof UpdateProductParams>;
-  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = req.body as z.infer<typeof UpdateProductBody>;
+  const body = req.body as z.infer<typeof UpdateProductBody>;
+  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = body;
 
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = name;
@@ -313,8 +318,85 @@ router.get("/products/:id/stock-requests", requireAuth, validateParams(ListProdu
   res.json({ data: rows, total: rows.length });
 });
 
+router.get("/products/:id/notify-estimate", requireAuth, validateParams(GetNotifyEstimateParams), validateQuery(GetNotifyEstimateQueryParams), async (req, res): Promise<void> => {
+  const { id: productId } = req.params as unknown as z.infer<typeof GetNotifyEstimateParams>;
+  const { audience = "all" } = res.locals["query"] as z.infer<typeof GetNotifyEstimateQueryParams>;
+
+  const [product] = await db.select({ id: productsTable.id }).from(productsTable).where(eq(productsTable.id, productId));
+  if (!product) {
+    res.status(404).json({ error: "Product not found" });
+    return;
+  }
+
+  let countResult: number;
+
+  if (audience === "buyers") {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(
+        db
+          .selectDistinct({ customerId: ordersTable.customerId })
+          .from(ordersTable)
+          .innerJoin(orderItemsTable, eq(orderItemsTable.orderId, ordersTable.id))
+          .innerJoin(customersTable, eq(customersTable.id, ordersTable.customerId))
+          .where(
+            and(
+              eq(orderItemsTable.productId, productId),
+              eq(ordersTable.status, "delivered"),
+              eq(customersTable.isActive, true),
+            )
+          )
+          .as("buyers")
+      );
+    countResult = Number(value);
+  } else if (audience === "requesters") {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(
+        db
+          .selectDistinct({ customerId: botLogsTable.customerId })
+          .from(botLogsTable)
+          .innerJoin(customersTable, eq(customersTable.id, botLogsTable.customerId))
+          .where(
+            and(
+              eq(botLogsTable.action, "stock_request"),
+              sql`(${botLogsTable.metadata}->>'productId')::int = ${productId}`,
+              eq(customersTable.isActive, true),
+            )
+          )
+          .as("requesters")
+      );
+    countResult = Number(value);
+  } else {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(customersTable)
+      .where(eq(customersTable.isActive, true));
+    countResult = Number(value);
+  }
+
+  res.json({ count: countResult });
+});
+
+const NOTIFY_COOLDOWN_MINUTES = 15;
+const notifyInProgress = new Set<number>();
+
 router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRestockedParams), async (req, res): Promise<void> => {
   const { id: productId } = req.params as unknown as z.infer<typeof NotifyProductRestockedParams>;
+  const parsed = NotifyProductRestockedBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "Validation error", details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });
+    return;
+  }
+  const audience = parsed.data.audience ?? "all";
+
+  if (notifyInProgress.has(productId)) {
+    res.status(429).json({
+      error: "cooldown",
+      message: "Thông báo đang được gửi, vui lòng đợi.",
+    });
+    return;
+  }
 
   const [product] = await db.select({
     id: productsTable.id,
@@ -327,18 +409,54 @@ router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRes
     return;
   }
 
-  const { sent, total, botConfigured } = await broadcastProductNotification(productId, product.name, product.price);
+  const cooldownCutoff = new Date(Date.now() - NOTIFY_COOLDOWN_MINUTES * 60 * 1000);
+  const [recentLog] = await db
+    .select({ sentAt: notificationLogsTable.sentAt, sent: notificationLogsTable.sent, total: notificationLogsTable.total })
+    .from(notificationLogsTable)
+    .where(
+      and(
+        eq(notificationLogsTable.productId, productId),
+        sql`${notificationLogsTable.sentAt} >= ${cooldownCutoff}`
+      )
+    )
+    .orderBy(desc(notificationLogsTable.sentAt))
+    .limit(1);
 
-  if (!botConfigured) {
-    res.status(503).json({ error: "Bot token chưa được cấu hình. Vui lòng cấu hình Telegram bot trước khi gửi thông báo." });
+  if (recentLog) {
+    const minutesAgo = Math.max(1, Math.round((Date.now() - recentLog.sentAt.getTime()) / 60000));
+    res.status(429).json({
+      error: "cooldown",
+      sent: recentLog.sent,
+      total: recentLog.total,
+      message: `Đã gửi thông báo ${minutesAgo} phút trước`,
+    });
     return;
   }
 
-  res.json({
-    sent,
-    total,
-    message: `Đã gửi thông báo đến ${sent}/${total} người dùng`,
-  });
+  notifyInProgress.add(productId);
+  try {
+    const { sent, total, botConfigured } = await broadcastProductNotification(productId, product.name, product.price, audience);
+
+    if (!botConfigured) {
+      res.status(503).json({ error: "Bot token chưa được cấu hình. Vui lòng cấu hình Telegram bot trước khi gửi thông báo." });
+      return;
+    }
+
+    await db.insert(notificationLogsTable).values({
+      productId,
+      audience,
+      sent,
+      total,
+    });
+
+    res.json({
+      sent,
+      total,
+      message: `Đã gửi thông báo đến ${sent}/${total} người dùng`,
+    });
+  } finally {
+    notifyInProgress.delete(productId);
+  }
 });
 
 export default router;

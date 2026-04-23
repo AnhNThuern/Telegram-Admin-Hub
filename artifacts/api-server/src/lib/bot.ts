@@ -1,7 +1,8 @@
 import { db, botLogsTable, customersTable, ordersTable, orderItemsTable, productStocksTable, transactionsTable, productsTable, promotionsTable, botPendingActionsTable } from "@workspace/db";
-import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count, isNotNull } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, lt, gte, count, sum, isNotNull, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { t, tMany, type Lang } from "./i18n";
+import { getOrCreateSystemSettings } from "./systemSettings";
 
 // Persistent conversation state for customers awaiting promo code entry.
 // Stored in `bot_pending_actions` so in-flight checkouts survive an API
@@ -113,7 +114,7 @@ function clearAwaitingQuantity(chatId: number | string): void {
   awaitingQuantity.delete(String(chatId));
 }
 
-interface ValidPromotion {
+export interface ValidPromotion {
   id: number;
   name: string;
   code: string;
@@ -384,6 +385,34 @@ async function renderView(chatId: number | string, editMessageId: number | undef
   return sendMessage(chatId, text, options);
 }
 
+async function editMessageMedia(chatId: number | string, messageId: number, photoUrl: string, caption?: string, reply_markup?: object): Promise<boolean> {
+  const token = await getBotToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/editMessageMedia`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        media: { type: "photo", media: photoUrl, caption, parse_mode: "HTML" },
+        ...(reply_markup ? { reply_markup } : {}),
+      }),
+    });
+    const data = await res.json() as { ok: boolean; description?: string };
+    if (!data.ok) {
+      const desc = data.description ?? "";
+      if (/message is not modified/i.test(desc)) return true;
+      logger.warn({ chatId, messageId, error: desc }, "Telegram editMessageMedia returned ok=false");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logger.error({ err }, "Failed to editMessageMedia");
+    return false;
+  }
+}
+
 async function sendPhoto(chatId: number | string, photoUrl: string, caption?: string, reply_markup?: object): Promise<boolean> {
   const token = await getBotToken();
   if (!token) return false;
@@ -480,14 +509,46 @@ export async function broadcastProductNotification(
   productId: number,
   productName: string,
   productPrice: string,
+  audience: "all" | "buyers" | "requesters" = "all",
 ): Promise<{ sent: number; total: number; botConfigured: boolean }> {
   const token = await getBotToken();
   if (!token) return { sent: 0, total: 0, botConfigured: false };
 
-  const customers = await db
-    .select({ chatId: customersTable.chatId })
-    .from(customersTable)
-    .where(eq(customersTable.isActive, true));
+  let customers: { chatId: string }[];
+
+  if (audience === "buyers") {
+    const rows = await db
+      .selectDistinct({ chatId: customersTable.chatId })
+      .from(ordersTable)
+      .innerJoin(orderItemsTable, eq(orderItemsTable.orderId, ordersTable.id))
+      .innerJoin(customersTable, eq(customersTable.id, ordersTable.customerId))
+      .where(
+        and(
+          eq(orderItemsTable.productId, productId),
+          eq(ordersTable.status, "delivered"),
+          eq(customersTable.isActive, true),
+        )
+      );
+    customers = rows;
+  } else if (audience === "requesters") {
+    const rows = await db
+      .selectDistinct({ chatId: customersTable.chatId })
+      .from(botLogsTable)
+      .innerJoin(customersTable, eq(customersTable.id, botLogsTable.customerId))
+      .where(
+        and(
+          eq(botLogsTable.action, "stock_request"),
+          sql`(${botLogsTable.metadata}->>'productId')::int = ${productId}`,
+          eq(customersTable.isActive, true),
+        )
+      );
+    customers = rows;
+  } else {
+    customers = await db
+      .select({ chatId: customersTable.chatId })
+      .from(customersTable)
+      .where(eq(customersTable.isActive, true));
+  }
 
   const priceFormatted = parseFloat(productPrice).toLocaleString("vi-VN");
   const text =
@@ -523,8 +584,8 @@ export async function broadcastProductNotification(
     "broadcast_restock",
     undefined,
     undefined,
-    `Broadcast for product ${productId} (${productName}): ${sent}/${total} sent`,
-    { productId, productName, sent, total },
+    `Broadcast for product ${productId} (${productName}): ${sent}/${total} sent (audience: ${audience})`,
+    { productId, productName, sent, total, audience },
   );
 
   return { sent, total, botConfigured: true };
@@ -680,13 +741,20 @@ async function showSettingsMenu(chatId: number | string, editMessageId?: number,
 
 async function showAccountInfo(chatId: number | string, customer: typeof customersTable.$inferSelect, lang: Lang = "vi"): Promise<void> {
   const balance = parseFloat(customer.balance ?? "0");
-  const [orderStats] = await db.select({
-    totalOrders: sqlOp<number>`COUNT(*)::int`,
-    totalSpent: sqlOp<number>`COALESCE(SUM(CASE WHEN status IN ('paid','delivered') THEN total_amount::numeric ELSE 0 END), 0)::numeric`,
-  }).from(ordersTable).where(eq(ordersTable.customerId, customer.id));
+  const [countResult] = await db
+    .select({ total: count() })
+    .from(ordersTable)
+    .where(eq(ordersTable.customerId, customer.id));
+  const [spentResult] = await db
+    .select({ total: sum(ordersTable.totalAmount) })
+    .from(ordersTable)
+    .where(and(
+      eq(ordersTable.customerId, customer.id),
+      inArray(ordersTable.status, ["paid", "delivered"])
+    ));
 
-  const totalOrders = Number(orderStats?.totalOrders ?? 0);
-  const totalSpent = Number(orderStats?.totalSpent ?? 0);
+  const totalOrders = Number(countResult?.total ?? 0);
+  const totalSpent = Number(spentResult?.total ?? 0);
   const noUsername = await t("account.no_username", lang);
   const username = customer.username ? `@${customer.username}` : noUsername;
 
@@ -1154,14 +1222,17 @@ async function showOrderConfirmScreen(
   await renderView(chatId, editMessageId, msg, { reply_markup: { inline_keyboard: keyboard } });
 }
 
-async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null, lang: Lang = "vi"): Promise<void> {
-  const [product] = await db.select({
-    id: productsTable.id,
-    name: productsTable.name,
-    price: productsTable.price,
-    minQuantity: productsTable.minQuantity,
-    maxQuantity: productsTable.maxQuantity,
-  }).from(productsTable).where(eq(productsTable.id, productId));
+export async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null, lang: Lang = "vi"): Promise<void> {
+  const [product, { shopName }] = await Promise.all([
+    db.select({
+      id: productsTable.id,
+      name: productsTable.name,
+      price: productsTable.price,
+      minQuantity: productsTable.minQuantity,
+      maxQuantity: productsTable.maxQuantity,
+    }).from(productsTable).where(eq(productsTable.id, productId)).then(r => r[0]),
+    getBotConfig(),
+  ]);
 
   const strings = await tMany([
     "prod.not_found", "order.invalid_qty", "prod.out_of_stock_req", "prod.stock_request",
@@ -1171,6 +1242,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     "order.bank_info_title", "order.bank_name", "order.account_number", "order.account_holder",
     "order.amount", "order.transfer_note", "order.transfer_warning", "order.low_balance_hint",
     "order.contact_admin", "order.no_payment_config", "prod.out_of_stock_race",
+    "promo.limit_exceeded",
   ], lang);
 
   const amountSuffix = lang === "en" ? "₫" : "đ";
@@ -1224,11 +1296,14 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   }
   const orderCode = `DH${suffix}`;
 
-  // Atomically create the order AND reserve stock rows in one transaction.
-  // If concurrent buyers have depleted stock since our pre-check, the reservation
-  // will find fewer rows (SKIP LOCKED means held rows are simply not returned),
-  // and we abort the entire transaction — no order is created, no stock double-claimed.
+  // Atomically create the order, reserve stock, and (if applicable) consume one
+  // promo usage — all in a single transaction so no partial state is ever written.
+  //
+  // STOCK_DEPLETED_AT_CREATION: concurrent buyer grabbed the last items via SKIP LOCKED.
+  // PROMO_LIMIT_EXCEEDED:       concurrent buyer consumed the last promo slot between our
+  //                             validatePromoCode check and the atomic increment guard.
   const STOCK_DEPLETED_AT_CREATION = "STOCK_DEPLETED_AT_ORDER_CREATION";
+  const PROMO_LIMIT_EXCEEDED = "PROMO_LIMIT_EXCEEDED_AT_ORDER_CREATION";
   let order: typeof ordersTable.$inferSelect;
 
   try {
@@ -1255,7 +1330,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       // for this order. Any row locked by another concurrent transaction is
       // skipped (SKIP LOCKED), so if we can't reserve enough, stock is gone.
       const reserved = await tx.execute(
-        sqlOp`UPDATE product_stocks
+        sql`UPDATE product_stocks
               SET status = 'reserved', order_id = ${newOrder.id}
               WHERE id IN (
                 SELECT id FROM product_stocks
@@ -1268,6 +1343,22 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       );
       const reservedRows = reserved.rows as Array<{ id: number }>;
       if (reservedRows.length < quantity) throw new Error(STOCK_DEPLETED_AT_CREATION);
+
+      // Atomically consume one promo usage inside the same transaction.
+      // The WHERE guard (use_count < usage_limit) prevents exceeding the limit even
+      // when multiple orders race to apply the same code at its last allowed use.
+      if (promotion) {
+        const promoUpdate = await tx.update(promotionsTable)
+          .set({ useCount: sql`${promotionsTable.useCount} + 1` })
+          .where(and(
+            eq(promotionsTable.id, promotion.id),
+            or(isNull(promotionsTable.usageLimit), lt(promotionsTable.useCount, promotionsTable.usageLimit)),
+          ))
+          .returning({ id: promotionsTable.id });
+        if (promoUpdate.length === 0) {
+          throw new Error(PROMO_LIMIT_EXCEEDED);
+        }
+      }
 
       return newOrder;
     });
@@ -1284,17 +1375,17 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       });
       return;
     }
+    if ((err as Error).message === PROMO_LIMIT_EXCEEDED) {
+      // Another concurrent order used the last allowed slot for this promo code.
+      await sendMessage(chatId, strings["promo.limit_exceeded"], {
+        reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
+      });
+      return;
+    }
     throw err;
   }
-
-  // Transaction committed — do non-critical best-effort updates outside the transaction
-  if (promotion) {
-    await db.update(promotionsTable)
-      .set({ useCount: sqlOp`use_count + 1` })
-      .where(eq(promotionsTable.id, promotion.id));
-  }
   await db.update(customersTable)
-    .set({ totalOrders: sqlOp`total_orders + 1` })
+    .set({ totalOrders: sql`${customersTable.totalOrders} + 1` })
     .where(eq(customersTable.id, customerId));
 
   await logBotAction("create_order", String(chatId), customerId, `Order ${orderCode} created (stock reserved)`, { orderId: order.id, productId, quantity, promotionId: promotion?.id, discountAmount });
@@ -1311,40 +1402,75 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     ? strings["order.subtotal_line"].replace("{amount}", subtotalFormatted) + "\n" + promoLine
     : "";
 
-  // Check customer's wallet balance
+  // Check customer's wallet balance and Binance Pay availability
   const [customer] = await db.select({ balance: customersTable.balance }).from(customersTable).where(eq(customersTable.id, customerId));
   const customerBalance = customer ? parseFloat(customer.balance) : 0;
   const orderTotal = parseFloat(totalAmount);
 
+  const { getBinancePayConfig } = await import("./binance-pay");
+  const binanceCfg = await getBinancePayConfig();
+  const binanceAvailable = !!(binanceCfg?.isActive && binanceCfg?.usdtRate);
+  const usdtEquiv = binanceCfg?.usdtRate ? (orderTotal / binanceCfg.usdtRate).toFixed(2) : null;
+
+  const orderCreatedHeader = shopName
+    ? (lang === "en"
+        ? `✅ <b>${shopName} confirmed Order #${orderCode}!</b>\n\nHow would you like to pay?`
+        : `✅ <b>${shopName} xác nhận đơn hàng #${orderCode}!</b>\n\nBạn muốn thanh toán bằng cách nào?`)
+    : strings["order.created"].replace("{code}", orderCode);
+
   if (customerBalance >= orderTotal) {
-    // Offer both payment methods
+    // Offer payment methods: wallet, bank transfer, and optionally Binance Pay
     const balanceFormatted = customerBalance.toLocaleString("vi-VN");
-    let msg = strings["order.created"].replace("{code}", orderCode) + "\n\n";
+    let msg = orderCreatedHeader + "\n\n";
     msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
     msg += subtotalLine;
     msg += strings["order.total_line"].replace("{amount}", amountFormatted) + "\n";
     msg += strings["order.wallet_balance_line"].replace("{balance}", balanceFormatted) + "\n\n";
     msg += strings["order.payment_choice"];
 
+    const keyboard: Array<Array<{ text: string; callback_data: string }>> = [
+      [{ text: `${strings["btn.pay_wallet"]} (${balanceFormatted}${amountSuffix})`, callback_data: `pay_with_balance_${order.id}` }],
+      [{ text: strings["btn.pay_bank"], callback_data: `show_bank_transfer_${order.id}` }],
+    ];
+    if (binanceAvailable && usdtEquiv) {
+      keyboard.push([{ text: `💰 USDT via Binance Pay ($${usdtEquiv})`, callback_data: `show_binance_pay_${order.id}` }]);
+    }
+    keyboard.push([{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }]);
+
+    await sendMessage(chatId, msg, { reply_markup: { inline_keyboard: keyboard } });
+    await logBotAction("payment_choice_offered", String(chatId), customerId, `Wallet/bank/binance for order ${orderCode}`, { orderId: order.id });
+    return;
+  }
+
+  // Balance insufficient — show bank transfer details directly (with Binance Pay option if available)
+  if (binanceAvailable) {
+    // Offer both bank transfer and Binance Pay
+    let msg = orderCreatedHeader + "\n\n";
+    msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
+    msg += subtotalLine;
+    msg += strings["order.total_line"].replace("{amount}", amountFormatted) + "\n\n";
+    msg += lang === "en"
+      ? "Please choose your payment method:"
+      : "Vui lòng chọn phương thức thanh toán:";
+
     await sendMessage(chatId, msg, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: `${strings["btn.pay_wallet"]} (${balanceFormatted}${amountSuffix})`, callback_data: `pay_with_balance_${order.id}` }],
           [{ text: strings["btn.pay_bank"], callback_data: `show_bank_transfer_${order.id}` }],
+          [{ text: `💰 USDT via Binance Pay ($${usdtEquiv})`, callback_data: `show_binance_pay_${order.id}` }],
           [{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }],
         ],
       },
     });
-    await logBotAction("payment_choice_offered", String(chatId), customerId, `Wallet vs bank for order ${orderCode}`, { orderId: order.id });
+    await logBotAction("payment_choice_offered", String(chatId), customerId, `Bank/binance for order ${orderCode}`, { orderId: order.id });
     return;
   }
 
-  // Balance insufficient — show bank transfer details directly
   const { createPaymentRequest } = await import("./payments");
   const paymentInfo = await createPaymentRequest(order.id);
 
   if (paymentInfo) {
-    let msg = strings["order.created"].replace("{code}", orderCode) + "\n\n";
+    let msg = orderCreatedHeader + "\n\n";
     msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
     msg += subtotalLine;
     msg += strings["order.total_line"].replace("{amount}", amountFormatted) + "\n\n";
@@ -1410,9 +1536,9 @@ async function cancelOrderByCustomer(chatId: number | string, orderId: number, c
   }
 
   // Release reserved stock back to available
-  await db.execute(
-    sqlOp`UPDATE product_stocks SET status = 'available', order_id = NULL WHERE order_id = ${orderId} AND status = 'reserved'`
-  );
+  await db.update(productStocksTable)
+    .set({ status: "available", orderId: null })
+    .where(and(eq(productStocksTable.orderId, orderId), eq(productStocksTable.status, "reserved")));
 
   // Mark order cancelled
   await db.update(ordersTable).set({ status: "cancelled" }).where(eq(ordersTable.id, orderId));
@@ -1525,6 +1651,164 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
   }
 }
 
+async function sendBinancePayForOrder(chatId: number | string, orderId: number, customerId: number, lang: Lang = "vi", editMessageId?: number): Promise<void> {
+  const [order] = await db.select().from(ordersTable).where(
+    and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
+  );
+
+  const cancelBtnText = await t("btn.cancel_order", lang);
+  const cancelKb = { inline_keyboard: [[{ text: cancelBtnText, callback_data: `cancel_order_${orderId}` }]] };
+
+  if (!order || order.status !== "pending") {
+    const invalidMsg = lang === "en"
+      ? "❌ This order is no longer valid for payment."
+      : "❌ Đơn hàng này không còn hợp lệ để thanh toán.";
+    await sendMessage(chatId, invalidMsg, { reply_markup: cancelKb });
+    return;
+  }
+
+  const { createBinancePayOrder, getBinancePayConfig } = await import("./binance-pay");
+  const binanceCfg = await getBinancePayConfig();
+
+  if (!binanceCfg?.isActive || !binanceCfg?.usdtRate) {
+    const unavailableMsg = lang === "en"
+      ? "⚠️ Binance Pay is currently unavailable. Please choose another payment method."
+      : "⚠️ Binance Pay hiện không khả dụng. Vui lòng chọn phương thức khác.";
+    await sendMessage(chatId, unavailableMsg, { reply_markup: cancelKb });
+    return;
+  }
+
+  // VND order total → USDT using admin-configured exchange rate
+  const vndTotal = parseFloat(order.totalAmount);
+  const usdtAmount = (vndTotal / binanceCfg.usdtRate).toFixed(8);
+  const usdtDisplay = parseFloat(usdtAmount).toFixed(2);
+  const vndDisplay = vndTotal.toLocaleString("vi-VN");
+
+  // Check if there's already a pending Binance Pay transaction for this order
+  const [existingBinanceTxn] = await db.select()
+    .from(transactionsTable)
+    .where(and(
+      eq(transactionsTable.orderId, orderId),
+      eq(transactionsTable.provider, "binance"),
+      eq(transactionsTable.status, "pending"),
+    ))
+    .limit(1);
+
+  if (existingBinanceTxn?.binancePrepayId) {
+    const existingUsdt = existingBinanceTxn.cryptoAmount
+      ? parseFloat(existingBinanceTxn.cryptoAmount).toFixed(2)
+      : usdtDisplay;
+    const msg = lang === "en"
+      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${vndDisplay}₫</b> ≈ <b>$${existingUsdt} USDT</b>\n\nOpen Binance app and complete payment.\n\n⏰ Complete it before it expires. Use "🔄 Refresh QR" if the QR has expired.`
+      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${vndDisplay}₫</b> ≈ <b>$${existingUsdt} USDT</b>\n\nMở ứng dụng Binance để hoàn tất thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn. Nhấn "🔄 Làm mới QR" nếu QR đã hết hạn.`;
+    const existingKb = {
+      inline_keyboard: [
+        [{ text: lang === "en" ? "🔄 Refresh QR" : "🔄 Làm mới QR", callback_data: `refresh_binance_qr_${orderId}` }],
+        [{ text: cancelBtnText, callback_data: `cancel_order_${orderId}` }],
+      ],
+    };
+    await sendMessage(chatId, msg, { reply_markup: existingKb });
+    return;
+  }
+
+  // Fetch product name from order items for Binance Pay goods description
+  const [item] = await db.select({
+    productId: orderItemsTable.productId,
+    productName: productsTable.name,
+  }).from(orderItemsTable)
+    .leftJoin(productsTable, eq(orderItemsTable.productId, productsTable.id))
+    .where(eq(orderItemsTable.orderId, orderId)).limit(1);
+
+  const goodsName = item?.productName ?? "Order";
+  const goodsId = String(item?.productId ?? orderId);
+
+  // Each attempt (including QR refresh) gets a unique merchantTradeNo via timestamp
+  // suffix — Binance Pay rejects duplicate merchant order IDs.
+  // Stored in paymentReference so webhook fallback matching works without prepayId.
+  const merchantTradeNo = `${binanceCfg.merchantTradeNoPrefix}${order.orderCode}_${Date.now()}`;
+
+  try {
+    const prepayResult = await createBinancePayOrder({
+      apiKey: binanceCfg.apiKey,
+      apiSecret: binanceCfg.apiSecret,
+      merchantTradeNo,
+      orderAmount: usdtAmount,
+      goodsName,
+      goodsId,
+    });
+
+    // Store VND in amount (accounting currency), USDT with full precision in cryptoAmount.
+    // transactionCode includes timestamp to stay unique across QR refresh attempts.
+    // paymentReference = exact merchantTradeNo so webhook can match without prepayId.
+    const binanceTxCode = `BP${order.orderCode}_${Date.now()}`;
+    await db.insert(transactionsTable).values({
+      transactionCode: binanceTxCode,
+      orderId: order.id,
+      type: "payment",
+      status: "pending",
+      amount: order.totalAmount,
+      cryptoAmount: usdtAmount,
+      provider: "binance",
+      binancePrepayId: prepayResult.prepayId,
+      paymentReference: merchantTradeNo,
+    });
+
+    const qrContent = prepayResult.qrcodeLink ?? null;
+    const deeplink = prepayResult.universalUrl ?? prepayResult.checkoutUrl ?? null;
+
+    const msg = lang === "en"
+      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${vndDisplay}₫</b> ≈ <b>$${usdtDisplay} USDT</b>\n\nScan the QR code in your Binance app to pay.\n\n⏰ Complete payment before it expires.`
+      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${vndDisplay}₫</b> ≈ <b>$${usdtDisplay} USDT</b>\n\nQuét mã QR bằng ứng dụng Binance để thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn.`;
+
+    const paymentKeyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
+    if (deeplink) {
+      paymentKeyboard.push([{ text: lang === "en" ? "📱 Open Binance App" : "📱 Mở Binance App", url: deeplink }]);
+    }
+    paymentKeyboard.push([{ text: lang === "en" ? "🔄 Refresh QR" : "🔄 Làm mới QR", callback_data: `refresh_binance_qr_${orderId}` }]);
+    paymentKeyboard.push([{ text: cancelBtnText, callback_data: `cancel_order_${orderId}` }]);
+
+    const payKb = { inline_keyboard: paymentKeyboard };
+
+    if (editMessageId !== undefined) {
+      // Refresh path: update the existing message in place
+      if (qrContent) {
+        const edited = await editMessageMedia(chatId, editMessageId, qrContent, msg, payKb);
+        if (!edited) {
+          await sendPhoto(chatId, qrContent, msg, payKb);
+        }
+      } else {
+        const edited = await editMessage(chatId, editMessageId, msg, { reply_markup: payKb });
+        if (!edited) await sendMessage(chatId, msg, { reply_markup: payKb });
+      }
+    } else {
+      // First-time path: send a new message
+      if (qrContent) {
+        const sent = await sendPhoto(chatId, qrContent, msg, payKb);
+        if (!sent) await sendMessage(chatId, msg, { reply_markup: payKb });
+      } else {
+        await sendMessage(chatId, msg, { reply_markup: payKb });
+      }
+    }
+
+    await logBotAction("binance_pay_initiated", String(chatId), customerId,
+      `Binance Pay for order ${order.orderCode}`, { orderId, usdtAmount, prepayId: prepayResult.prepayId });
+
+  } catch (err) {
+    const errMsg = lang === "en"
+      ? "❌ Could not create Binance Pay order. Please try bank transfer instead."
+      : "❌ Không thể tạo lệnh Binance Pay. Vui lòng chọn chuyển khoản ngân hàng.";
+    await sendMessage(chatId, errMsg, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: lang === "en" ? "🏦 Bank Transfer" : "🏦 Chuyển khoản ngân hàng", callback_data: `show_bank_transfer_${orderId}` }],
+          [{ text: cancelBtnText, callback_data: `cancel_order_${orderId}` }],
+        ],
+      },
+    });
+    console.error("Binance Pay order creation failed:", err);
+  }
+}
+
 /**
  * Atomically pay with wallet balance AND claim + deliver stock in one DB transaction.
  * This prevents the "charged but no goods" scenario: if stock is unavailable, the
@@ -1558,7 +1842,7 @@ async function payWithBalanceAndDeliver(
       // orders that predate the reservation model). SKIP LOCKED ensures we never
       // double-claim a row held by a concurrent transaction.
       const result = await tx.execute(
-        sqlOp`SELECT id, content FROM product_stocks
+        sql`SELECT id, content FROM product_stocks
               WHERE product_id = ${item.productId}
                 AND (status = 'available' OR (status = 'reserved' AND order_id = ${orderId}))
               ORDER BY (CASE WHEN status = 'reserved' AND order_id = ${orderId} THEN 0 ELSE 1 END), created_at
@@ -1578,10 +1862,10 @@ async function payWithBalanceAndDeliver(
 
       // Step 3: Deduct wallet balance — rolls back everything if insufficient
       const deducted = await tx.update(customersTable)
-        .set({ balance: sqlOp`balance - ${totalAmount}::numeric` })
+        .set({ balance: sql`${customersTable.balance} - ${totalAmount}::numeric` })
         .where(and(
           eq(customersTable.id, customerId),
-          sqlOp`balance >= ${totalAmount}::numeric`
+          gte(customersTable.balance, sql`${totalAmount}::numeric`),
         ))
         .returning({ id: customersTable.id });
       if (deducted.length === 0) throw new Error(INSUFFICIENT);
@@ -1620,7 +1904,7 @@ async function payWithBalanceAndDeliver(
 
   // Update customer spend stats outside the transaction (non-critical, best-effort)
   await db.update(customersTable)
-    .set({ totalSpent: sqlOp`total_spent + ${parseFloat(order.totalAmount)}` })
+    .set({ totalSpent: sql`${customersTable.totalSpent} + ${parseFloat(order.totalAmount)}` })
     .where(eq(customersTable.id, customerId))
     .catch(err => logger.warn({ err, orderId }, "Failed to update totalSpent after wallet delivery"));
 
@@ -1637,7 +1921,7 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
   // can show it without scanning bot_logs on every request.
   if (isRetry) {
     await db.update(ordersTable)
-      .set({ retryCount: sqlOp`${ordersTable.retryCount} + 1` })
+      .set({ retryCount: sql`${ordersTable.retryCount} + 1` })
       .where(eq(ordersTable.id, orderId));
   }
 
@@ -1663,7 +1947,7 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
       // Prefer reserved rows already allocated to this order at creation time;
       // fall back to any available row for retries / legacy orders without reservation.
       const result = await tx.execute(
-        sqlOp`SELECT id, content FROM product_stocks
+        sql`SELECT id, content FROM product_stocks
               WHERE product_id = ${item.productId}
                 AND (status = 'available' OR (status = 'reserved' AND order_id = ${orderId}))
               ORDER BY (CASE WHEN status = 'reserved' AND order_id = ${orderId} THEN 0 ELSE 1 END), created_at
@@ -1684,6 +1968,13 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
       await tx.update(productStocksTable)
         .set({ status: "delivered", orderId })
         .where(inArray(productStocksTable.id, rows.map(r => r.id)));
+
+      // Update order status inside the same transaction so the DB is always
+      // consistent: if the server crashes after this commit the order is already
+      // 'delivered' and the retry sweep won't attempt a second delivery.
+      await tx.update(ordersTable)
+        .set({ status: "delivered", deliveredAt: new Date() })
+        .where(eq(ordersTable.id, orderId));
     });
   } catch (err) {
     if ((err as Error).message !== INSUFFICIENT_STOCK_SENTINEL) throw err;
@@ -1716,7 +2007,11 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
   }
 
   // Send stock content to customer
-  let deliveryMsg = `🎉 <b>Đơn hàng ${order.orderCode} đã giao thành công!</b>\n\n`;
+  const { shopName: deliveryShopName } = await getBotConfig();
+  const deliveryHeader = deliveryShopName
+    ? `🎉 <b>${deliveryShopName}: Đơn hàng ${order.orderCode} đã giao thành công!</b>`
+    : `🎉 <b>Đơn hàng ${order.orderCode} đã giao thành công!</b>`;
+  let deliveryMsg = deliveryHeader + "\n\n";
   deliveryMsg += `📦 ${item.productName} x${item.quantity}\n`;
 
   // Show discount details on the receipt if a promo code was applied
@@ -1745,17 +2040,16 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
   if (isRetry) {
     deliveryMsg += `\n✅ Cảm ơn bạn đã kiên nhẫn chờ đợi! Xin lỗi vì sự chậm trễ.`;
   } else {
-    deliveryMsg += `\n✅ Cảm ơn bạn đã mua hàng!`;
+    deliveryMsg += deliveryShopName
+      ? `\n✅ Cảm ơn bạn đã mua hàng tại ${deliveryShopName}!`
+      : `\n✅ Cảm ơn bạn đã mua hàng!`;
   }
 
   await sendMessage(parseInt(customer.chatId), deliveryMsg);
 
-  // Update order status
-  await db.update(ordersTable).set({ status: "delivered", deliveredAt: new Date() }).where(eq(ordersTable.id, orderId));
-
   // Update customer total spent
-  const { sql } = await import("drizzle-orm");
-  await db.update(customersTable).set({ totalSpent: sql`total_spent + ${parseFloat(order.totalAmount)}` }).where(eq(customersTable.id, customer.id));
+  // (Order status was already set to 'delivered' inside the stock-claim transaction above)
+  await db.update(customersTable).set({ totalSpent: sql`${customersTable.totalSpent} + ${parseFloat(order.totalAmount)}` }).where(eq(customersTable.id, customer.id));
 
   const deliveryAction = isRetry ? "retry_delivery_sent" : "delivery_sent";
   await logBotAction(deliveryAction, customer.chatId, customer.id, `Delivered order ${order.orderCode}`, { orderId, isRetry });
@@ -2068,7 +2362,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           // Customer typed a promo code while on the confirm screen
           updateAwaitingQuantity(chatId, { awaitingPromoEntry: false });
           const qty = entry.quantity!;
-          const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(eq(productsTable.id, entry.productId));
+          const [product] = await db.select({ price: productsTable.price }).from(productsTable).where(and(eq(productsTable.id, entry.productId), eq(productsTable.isActive, true)));
           const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, entry.productId), eq(productStocksTable.status, "available")));
           const stockCount = Number(stockRow?.c ?? 0);
           if (!product) {
@@ -2110,7 +2404,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               name: productsTable.name,
               minQuantity: productsTable.minQuantity,
               maxQuantity: productsTable.maxQuantity,
-            }).from(productsTable).where(eq(productsTable.id, pending.productId));
+            }).from(productsTable).where(and(eq(productsTable.id, pending.productId), eq(productsTable.isActive, true)));
             const [stockRow2] = await db.select({ c: count() }).from(productStocksTable).where(and(eq(productStocksTable.productId, pending.productId), eq(productStocksTable.status, "available")));
             const availableStock = Number(stockRow2?.c ?? 0);
             if (!product) {
@@ -2225,10 +2519,11 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             reply_markup: { inline_keyboard: [[{ text: homeBtn, callback_data: "main_menu" }]] },
           });
         } else {
-          // Rate-limit: max 5 stock requests per customer per 24-hour window (across all products).
+          // Rate-limit: max 5 stock requests per customer per configurable window (across all products).
           // Also block duplicate requests for the same product in the same window.
+          const sysSettings = await getOrCreateSystemSettings();
           const STOCK_REQUEST_DAILY_LIMIT = 5;
-          const STOCK_REQUEST_WINDOW_MS = 24 * 60 * 60 * 1000;
+          const STOCK_REQUEST_WINDOW_MS = sysSettings.stockRequestWindowHours * 60 * 60 * 1000;
           const since = new Date(Date.now() - STOCK_REQUEST_WINDOW_MS);
 
           const [totalRow] = await db
@@ -2248,7 +2543,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               eq(botLogsTable.action, "stock_request"),
               eq(botLogsTable.customerId, customer.id),
               gte(botLogsTable.createdAt, since),
-              sqlOp`${botLogsTable.metadata}->>'productId' = ${String(productId)}`,
+              sql`${botLogsTable.metadata}->>'productId' = ${String(productId)}`,
             ));
           const alreadyRequested = Number(dupRow?.c ?? 0) > 0;
 
@@ -2466,15 +2761,24 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           );
 
           // Build and send the delivery message
-          const walletDeliveryStrings = await tMany([
-            "delivery.success", "delivery.product_line", "delivery.subtotal_line",
-            "delivery.promo_line", "delivery.discount_line", "delivery.paid_wallet",
-            "delivery.product_info", "delivery.thank_you",
-          ], lang);
+          const [walletDeliveryStrings, { shopName: walletShopName }] = await Promise.all([
+            tMany([
+              "delivery.success", "delivery.product_line", "delivery.subtotal_line",
+              "delivery.promo_line", "delivery.discount_line", "delivery.paid_wallet",
+              "delivery.product_info", "delivery.thank_you",
+            ], lang),
+            getBotConfig(),
+          ]);
           const walletAmountSuffix = lang === "en" ? "₫" : "đ";
 
+          const baseSuccessLine = walletDeliveryStrings["delivery.success"].replace("{code}", order.orderCode);
+          const successLine = walletShopName
+            ? (lang === "en"
+                ? `🎉 <b>${walletShopName}: Order ${order.orderCode} delivered successfully!</b>`
+                : `🎉 <b>${walletShopName}: Đơn hàng ${order.orderCode} đã giao thành công!</b>`)
+            : baseSuccessLine;
           const orderDiscount = parseFloat(order.discountAmount ?? "0");
-          let deliveryMsg = walletDeliveryStrings["delivery.success"].replace("{code}", order.orderCode) + "\n\n";
+          let deliveryMsg = successLine + "\n\n";
           deliveryMsg += walletDeliveryStrings["delivery.product_line"]
             .replace("{name}", item.productName)
             .replace("{qty}", String(item.quantity)) + "\n";
@@ -2502,7 +2806,12 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
           deliveryMsg += `\n${walletDeliveryStrings["delivery.product_info"]}\n`;
           stocks.forEach((s, i) => { deliveryMsg += `${i + 1}. <code>${s.content}</code>\n`; });
-          deliveryMsg += `\n${walletDeliveryStrings["delivery.thank_you"]}`;
+          const thankYouLine = walletShopName
+            ? (lang === "en"
+                ? `✅ <b>Thank you for your purchase at ${walletShopName}!</b> 💚`
+                : `✅ <b>Cảm ơn bạn đã mua hàng tại ${walletShopName}!</b> 💚`)
+            : walletDeliveryStrings["delivery.thank_you"];
+          deliveryMsg += `\n${thankYouLine}`;
 
           await sendMessage(chatId, deliveryMsg);
 
@@ -2543,6 +2852,23 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
       } else if (data.startsWith("show_bank_transfer_")) {
         const orderId = parseInt(data.replace("show_bank_transfer_", ""), 10);
         await sendBankTransferForOrder(chatId, orderId, customer.id, lang);
+      } else if (data.startsWith("show_binance_pay_")) {
+        const orderId = parseInt(data.replace("show_binance_pay_", ""), 10);
+        await sendBinancePayForOrder(chatId, orderId, customer.id, lang);
+      } else if (data.startsWith("refresh_binance_qr_")) {
+        const orderId = parseInt(data.replace("refresh_binance_qr_", ""), 10);
+        if (!isNaN(orderId)) {
+          // Cancel the old pending Binance transaction so a fresh order is created
+          await db.update(transactionsTable).set({ status: "cancelled" }).where(
+            and(
+              eq(transactionsTable.orderId, orderId),
+              eq(transactionsTable.status, "pending"),
+              eq(transactionsTable.provider, "binance"),
+            )
+          );
+          // Pass messageId so the existing QR message is edited in place
+          await sendBinancePayForOrder(chatId, orderId, customer.id, lang, messageId);
+        }
       } else if (data.startsWith("topup_amount_")) {
         const amount = parseInt(data.replace("topup_amount_", ""), 10);
         if (isNaN(amount) || amount <= 0) {

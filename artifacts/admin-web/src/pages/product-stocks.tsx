@@ -1,16 +1,26 @@
-import { useListProductStocks, useAddProductStocks, useDeleteStock, getListProductStocksQueryKey, useGetProduct, getGetProductQueryKey, useNotifyProductRestocked } from "@workspace/api-client-react";
+import { useListProductStocks, useAddProductStocks, useDeleteStock, getListProductStocksQueryKey, useGetProduct, getGetProductQueryKey, useNotifyProductRestocked, useGetNotifyEstimate, getGetNotifyEstimateQueryKey } from "@workspace/api-client-react";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Trash2, ArrowLeft, Bell } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { Loader2, Plus, Trash2, ArrowLeft, Bell, Users } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Link } from "wouter";
 import { formatDate } from "@/lib/utils";
+
+type Audience = "all" | "buyers" | "requesters";
+
+const AUDIENCE_OPTIONS: { value: Audience; label: string; description: string }[] = [
+  { value: "all", label: "Tất cả người dùng", description: "Gửi đến tất cả người dùng đang hoạt động" },
+  { value: "buyers", label: "Đã mua sản phẩm này", description: "Chỉ những khách từng mua sản phẩm này" },
+  { value: "requesters", label: "Đã yêu cầu báo hàng", description: "Chỉ những khách đã yêu cầu thông báo khi có hàng" },
+];
 
 export default function ProductStocks({ params }: { params: { id: string } }) {
   const productId = parseInt(params.id);
@@ -30,8 +40,20 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
   const [stockLines, setStockLines] = useState("");
   const [isNotifyOpen, setIsNotifyOpen] = useState(false);
   const [lastAddedCount, setLastAddedCount] = useState(0);
+  const [audience, setAudience] = useState<Audience>("all");
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const { data: estimateData, isFetching: isEstimateFetching } = useGetNotifyEstimate(
+    productId,
+    { audience },
+    {
+      query: {
+        enabled: isNotifyOpen,
+        queryKey: getGetNotifyEstimateQueryKey(productId, { audience }),
+      }
+    }
+  );
 
   const addStocks = useAddProductStocks();
   const deleteStock = useDeleteStock();
@@ -49,6 +71,7 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
           setIsAddOpen(false);
           setStockLines("");
           queryClient.invalidateQueries({ queryKey: getListProductStocksQueryKey(productId) });
+          setAudience("all");
           setIsNotifyOpen(true);
         },
       }
@@ -57,14 +80,20 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
 
   const handleNotifyUsers = () => {
     notifyUsers.mutate(
-      { id: productId },
+      { id: productId, data: { audience } },
       {
         onSuccess: (res) => {
           setIsNotifyOpen(false);
           toast({ title: res.message });
         },
-        onError: () => {
-          toast({ title: "Không thể gửi thông báo", variant: "destructive" });
+        onError: (err) => {
+          const data = (err as { status?: number; data?: { message?: string; error?: string } }).data;
+          const status = (err as { status?: number }).status;
+          if (status === 429 && data?.message) {
+            toast({ title: data.message, description: "Vui lòng đợi trước khi gửi lại thông báo.", variant: "destructive" });
+          } else {
+            toast({ title: "Không thể gửi thông báo", variant: "destructive" });
+          }
         },
       }
     );
@@ -151,7 +180,7 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bell className="h-5 w-5 text-primary" />
-              Thông báo đến tất cả người dùng?
+              Gửi thông báo tái nhập kho
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
@@ -159,9 +188,40 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
               Đã nhập thành công <span className="font-semibold text-foreground">{lastAddedCount}</span> kho số mới cho{" "}
               <span className="font-semibold text-foreground">{product?.name}</span>.
             </p>
-            <p className="text-sm text-muted-foreground">
-              Bạn có muốn gửi thông báo Telegram đến tất cả người dùng với nút <strong>🛒 Mua ngay</strong> không?
-            </p>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Chọn đối tượng nhận thông báo:</p>
+              <RadioGroup
+                value={audience}
+                onValueChange={(v) => setAudience(v as Audience)}
+                className="space-y-2"
+                data-testid="audience-radio-group"
+              >
+                {AUDIENCE_OPTIONS.map((opt) => (
+                  <div key={opt.value} className="flex items-start space-x-3 rounded-md border p-3">
+                    <RadioGroupItem value={opt.value} id={`audience-${opt.value}`} className="mt-0.5" />
+                    <Label htmlFor={`audience-${opt.value}`} className="cursor-pointer flex-1">
+                      <span className="font-medium">{opt.label}</span>
+                      <p className="text-xs text-muted-foreground mt-0.5">{opt.description}</p>
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm" data-testid="estimate-count">
+              <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+              {isEstimateFetching ? (
+                <span className="text-muted-foreground">Đang tính số người nhận...</span>
+              ) : (
+                <span>
+                  Ước tính sẽ gửi đến{" "}
+                  <span className="font-semibold text-foreground">{estimateData?.count ?? "—"}</span>{" "}
+                  người dùng
+                </span>
+              )}
+            </div>
+
             <div className="flex gap-3">
               <Button
                 onClick={handleNotifyUsers}

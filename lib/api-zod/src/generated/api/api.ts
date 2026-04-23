@@ -353,16 +353,40 @@ export const ListProductStockRequestsResponse = zod.object({
 });
 
 /**
- * @summary Broadcast a restock notification to all registered Telegram users
+ * @summary Broadcast a restock notification to selected users
  */
 export const NotifyProductRestockedParams = zod.object({
   id: zod.coerce.number(),
+});
+
+export const NotifyProductRestockedBody = zod.object({
+  audience: zod
+    .enum(["all", "buyers", "requesters"])
+    .optional()
+    .describe('Which users to notify. Defaults to \"all\".'),
 });
 
 export const NotifyProductRestockedResponse = zod.object({
   sent: zod.number().describe("Number of users successfully notified"),
   total: zod.number().describe("Total number of users attempted"),
   message: zod.string(),
+});
+
+/**
+ * @summary Estimate how many users would be notified for a given audience
+ */
+export const GetNotifyEstimateParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetNotifyEstimateQueryParams = zod.object({
+  audience: zod.enum(["all", "buyers", "requesters"]).optional(),
+});
+
+export const GetNotifyEstimateResponse = zod.object({
+  count: zod
+    .number()
+    .describe("Estimated number of recipients for the given audience"),
 });
 
 /**
@@ -988,6 +1012,7 @@ export const DeletePromotionParams = zod.object({
 export const GetSystemSettingsResponse = zod.object({
   maxRetryCount: zod.number(),
   maxOrderAgeDays: zod.number(),
+  stockRequestWindowHours: zod.number(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -998,6 +1023,8 @@ export const updateSystemSettingsBodyMaxRetryCountMax = 1000;
 
 export const updateSystemSettingsBodyMaxOrderAgeDaysMax = 365;
 
+export const updateSystemSettingsBodyStockRequestWindowHoursMax = 168;
+
 export const UpdateSystemSettingsBody = zod.object({
   maxRetryCount: zod
     .number()
@@ -1007,11 +1034,16 @@ export const UpdateSystemSettingsBody = zod.object({
     .number()
     .min(1)
     .max(updateSystemSettingsBodyMaxOrderAgeDaysMax),
+  stockRequestWindowHours: zod
+    .number()
+    .min(1)
+    .max(updateSystemSettingsBodyStockRequestWindowHoursMax),
 });
 
 export const UpdateSystemSettingsResponse = zod.object({
   maxRetryCount: zod.number(),
   maxOrderAgeDays: zod.number(),
+  stockRequestWindowHours: zod.number(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -1085,6 +1117,13 @@ export const SetBotWebhookResponse = zod.object({
 });
 
 /**
+ * @summary Re-register bot commands with Telegram
+ */
+export const RegisterBotCommandsResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
  * @summary Disconnect and clear bot config
  */
 export const DisconnectBotResponse = zod.object({
@@ -1151,6 +1190,12 @@ export const GetPaymentConfigResponse = zod.object({
       "Public URL admins should configure in SePay's webhook settings. Computed from REPLIT_DOMAINS at request time.",
     ),
   isActive: zod.boolean(),
+  binanceApiKey: zod.string().nullish(),
+  binanceApiSecret: zod.string().nullish(),
+  binanceMerchantTradeNoPrefix: zod.string().nullish(),
+  binanceIsActive: zod.boolean(),
+  usdtRate: zod.string().nullish(),
+  binanceWebhookUrl: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -1165,6 +1210,11 @@ export const SavePaymentConfigBody = zod.object({
   webhookSecret: zod.string().optional(),
   apiKey: zod.string().optional(),
   isActive: zod.boolean().optional(),
+  binanceApiKey: zod.string().optional(),
+  binanceApiSecret: zod.string().optional(),
+  binanceMerchantTradeNoPrefix: zod.string().optional(),
+  binanceIsActive: zod.boolean().optional(),
+  usdtRate: zod.string().nullish(),
 });
 
 export const SavePaymentConfigResponse = zod.object({
@@ -1183,6 +1233,12 @@ export const SavePaymentConfigResponse = zod.object({
       "Public URL admins should configure in SePay's webhook settings. Computed from REPLIT_DOMAINS at request time.",
     ),
   isActive: zod.boolean(),
+  binanceApiKey: zod.string().nullish(),
+  binanceApiSecret: zod.string().nullish(),
+  binanceMerchantTradeNoPrefix: zod.string().nullish(),
+  binanceIsActive: zod.boolean(),
+  usdtRate: zod.string().nullish(),
+  binanceWebhookUrl: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -1193,6 +1249,14 @@ export const HandleSepayWebhookBody = zod.object({}).passthrough();
 
 export const HandleSepayWebhookResponse = zod.object({
   message: zod.string(),
+});
+
+/**
+ * @summary Test Binance Pay credentials
+ */
+export const TestBinanceConnectionResponse = zod.object({
+  success: zod.boolean(),
+  error: zod.string().nullish(),
 });
 
 /**

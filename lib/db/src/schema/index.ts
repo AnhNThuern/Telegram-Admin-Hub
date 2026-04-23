@@ -13,3 +13,4 @@ export * from "./bot_logs";
 export * from "./system_settings";
 export * from "./bot_pending_actions";
 export * from "./i18n_strings";
+export * from "./notification_logs";

@@ -1,0 +1,78 @@
+#61 - Add USDT payment via Binance Pay
+What & Why
+The system currently supports two payment methods: QR bank transfer (SePay/VietQR) and internal wallet. This task adds a third method — USDT payment via Binance Pay — so customers can pay with crypto directly from the Binance app by scanning a QR code.
+
+How Binance Pay works (research summary)
+Merchant calls POST https://bpay.binanceapi.com/binancepay/openapi/v3/order with HMAC-SHA512 auth (API Key + Secret from Binance Merchant Dashboard)
+Response contains qrcodeLink (image URL), qrContent (deeplink), checkoutUrl, and prepayId
+Customer scans QR in Binance App, confirms, crypto leaves their account
+Binance sends a signed webhook (POST) to the merchant's server when status changes
+Webhook signature: RSA (Binance's public certificate, fetched from a fixed URL)
+Server responds with HTTP 200 + body {"returnCode":"SUCCESS","returnMessage":null}
+Done looks like
+Admin can enter Binance Pay API Key, API Secret, and a VND/USDT exchange rate in the admin Payment Settings page
+A "Test Connection" button verifies the credentials against Binance API
+When Binance Pay is enabled and configured, the bot shows a payment method selector after order confirmation: "💳 QR Ngân hàng" or "💰 USDT (Binance Pay)"
+Selecting USDT: bot sends the Binance Pay QR code image + a deeplink button + expiry notice
+When customer pays, webhook fires → order marked paid → digital goods auto-delivered (same flow as SePay)
+If QR expires (1h), customer can tap a "Làm mới QR" button to regenerate
+Amount shows in both VND and equivalent USDT (using configured rate)
+Out of scope
+Other crypto currencies (only USDT for now)
+Live exchange rate fetching (admin sets a manual rate, updates it as needed)
+Fiat settlement currency selection
+Steps
+1. Database schema
+lib/db/src/schema/payment_configs.ts: add columns binanceApiKey text, binanceApiSecret text, usdtRate numeric(20,6) (VND per 1 USDT, e.g. 25500.00)
+lib/db/src/schema/transactions.ts: add column binancePrepayId text (null for SePay orders) so we can track & query by Binance order ID
+Run drizzle-kit push to apply
+2. Binance Pay service module
+Create artifacts/api-server/src/lib/binance-pay.ts:
+createBinancePayOrder(params) — builds HMAC-SHA512 signed request, calls /binancepay/openapi/v3/order, returns { prepayId, qrcodeLink, qrContent, checkoutUrl, expireTime }
+verifyBinanceWebhookSignature(headers, body) — fetches Binance's RSA public cert, verifies the BinancePay-Signature header
+getBinancePayConfig() — reads credentials from payment_configs where provider = 'sepay' (or a new binance row, see step 1 approach)
+HMAC-SHA512 signature: {timestamp}\n{nonce}\n{requestBody}\n
+Nonce: 32 random alphanumeric chars
+Headers: BinancePay-Timestamp, BinancePay-Nonce, BinancePay-Certificate-SN, BinancePay-Signature
+3. Webhook route
+artifacts/api-server/src/routes/payments.ts: add router.post("/payments/binance/webhook", ...)
+Verify RSA signature (reject unsigned with 400)
+Parse bizStatus — only act on "PAY_SUCCESS"
+Look up transaction by merchantTradeNo → binancePrepayId matching
+Atomic update: status = 'confirmed' WHERE status = 'pending'
+Trigger deliverOrder() and update order status to paid → delivered
+Respond {"returnCode":"SUCCESS","returnMessage":null}
+4. OpenAPI spec + codegen
+Add POST /payments/binance/test-connection route and schema to lib/api-spec/openapi.yaml
+Add GET /payments/config response fields: binanceApiKey (masked), usdtRate
+Regenerate api-zod and api-client-react with pnpm run codegen
+5. Bot changes — payment method selection
+In artifacts/api-server/src/lib/bot.ts, after showOrderConfirmScreen renders the confirm buttons, check if a binanceApiKey is configured and isActive = true:
+If yes: the confirm screen shows two buttons: confirm_order_bank_{productId}_{qty} and confirm_order_binance_{productId}_{qty}
+If no: existing single "Đặt hàng" button unchanged (backwards-compatible)
+Handle confirm_order_binance_* callback:
+Call createBinancePayOrder with orderAmount = price_vnd / usdtRate, currency = "USDT", merchantTradeNo = orderCode
+Save binancePrepayId to the pending transaction
+Send bot message with:
+QR image from qrcodeLink
+"Mở Binance App" deeplink button (universalUrl)
+Amount in USDT + equivalent VND
+Expiry time (1 hour)
+"Làm mới QR" button → callback refresh_binance_qr_{orderId}
+Handle refresh_binance_qr_{orderId} → regenerate QR, edit the existing message
+6. Admin UI — Binance Pay config card
+artifacts/admin-web/src/pages/settings-payments.tsx:
+Add a new <Card> for Binance Pay below the existing SePay card
+Fields: API Key (password input), API Secret (password input, reveal toggle), Exchange Rate (number input, VND per USDT, e.g. 25500)
+"Lưu Binance Pay" button → calls save endpoint
+"Kiểm tra kết nối" button → calls POST /payments/binance/test-connection
+Enable/disable toggle (sets isActive for the binance config row)
+Shows masked key once saved
+Relevant files
+lib/db/src/schema/payment_configs.ts
+lib/db/src/schema/transactions.ts
+artifacts/api-server/src/lib/payments.ts
+artifacts/api-server/src/routes/payments.ts
+artifacts/api-server/src/lib/bot.ts
+artifacts/admin-web/src/pages/settings-payments.tsx
+lib/api-spec/openapi.yaml

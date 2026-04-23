@@ -48,7 +48,9 @@ export default function SettingsBot() {
     query: { queryKey: getGetBotConfigQueryKey() }
   });
 
-  const saveConfig = useSaveBotConfig();
+  const saveBotTokenConfig = useSaveBotConfig();
+  const saveShopInfoConfig = useSaveBotConfig();
+  const saveMenuTextsConfig = useSaveBotConfig();
   const testToken = useTestBotToken();
   const setWebhook = useSetBotWebhook();
   const disconnectBot = useDisconnectBot();
@@ -143,7 +145,7 @@ export default function SettingsBot() {
   };
 
   const onSubmit = (data: BotFormValues) => {
-    saveConfig.mutate(
+    saveBotTokenConfig.mutate(
       { data: { botToken: data.botToken, adminChatId: data.adminChatId || null } },
       {
         onSuccess: () => {
@@ -158,7 +160,7 @@ export default function SettingsBot() {
   };
 
   const onSaveWelcome = (data: WelcomeValues) => {
-    saveConfig.mutate(
+    saveShopInfoConfig.mutate(
       {
         data: {
           botToken: config?.botToken || "",
@@ -167,9 +169,16 @@ export default function SettingsBot() {
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: (res) => {
           toast({ title: "Đã lưu thông tin cửa hàng" });
-          queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
+          // Update cache directly so only this form resets — don't trigger a
+          // full refetch which would also reset the menu-text form mid-edit.
+          queryClient.setQueryData(getGetBotConfigQueryKey(), (old: typeof config) => ({
+            ...old,
+            shopName: res.shopName,
+            welcomeMessage: res.welcomeMessage,
+          }));
+          welcomeForm.reset({ shopName: res.shopName ?? "", welcomeMessage: res.welcomeMessage ?? "" });
         },
         onError: (err) => {
           toast({ variant: "destructive", title: "Lưu thất bại", description: getApiErrorMessage(err) });
@@ -181,7 +190,7 @@ export default function SettingsBot() {
   const onSaveMenuTexts = (data: MenuTextsValues) => {
     // Send the existing (masked) bot token back unchanged — the API treats a
     // masked token as "no change" and only updates the menu text fields.
-    saveConfig.mutate(
+    saveMenuTextsConfig.mutate(
       {
         data: {
           botToken: config?.botToken || "",
@@ -191,9 +200,21 @@ export default function SettingsBot() {
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: (res) => {
           toast({ title: "Đã lưu nội dung menu" });
-          queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
+          // Update cache directly so only this form resets — don't trigger a
+          // full refetch which would also reset the shop-info form mid-edit.
+          queryClient.setQueryData(getGetBotConfigQueryKey(), (old: typeof config) => ({
+            ...old,
+            warrantyText: res.warrantyText,
+            supportText: res.supportText,
+            infoText: res.infoText,
+          }));
+          menuTextsForm.reset({
+            warrantyText: res.warrantyText ?? "",
+            supportText: res.supportText ?? "",
+            infoText: res.infoText ?? "",
+          });
         },
         onError: (err) => {
           toast({ variant: "destructive", title: "Lưu thất bại", description: getApiErrorMessage(err) });
@@ -245,7 +266,7 @@ export default function SettingsBot() {
   const handleStartBot = () => {
     const token = form.getValues("botToken");
     const adminChatId = form.getValues("adminChatId");
-    saveConfig.mutate(
+    saveBotTokenConfig.mutate(
       { data: { botToken: token, adminChatId: adminChatId || null } },
       {
         onSuccess: () => {
@@ -375,8 +396,8 @@ export default function SettingsBot() {
                   )}
                 />
                 <div className="flex gap-2">
-                  <Button type="submit" disabled={saveConfig.isPending} className="flex-1" data-testid="btn-save-bot-config">
-                    {saveConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Button type="submit" disabled={saveBotTokenConfig.isPending} className="flex-1" data-testid="btn-save-bot-config">
+                    {saveBotTokenConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Lưu cấu hình
                   </Button>
                   <Button type="button" variant="secondary" onClick={handleTestToken} disabled={testToken.isPending || !form.watch("botToken")} data-testid="btn-test-token">
@@ -445,10 +466,10 @@ export default function SettingsBot() {
               <Button 
                 className="flex-1" 
                 onClick={handleStartBot} 
-                disabled={saveConfig.isPending || setWebhook.isPending || !form.watch("botToken")}
+                disabled={saveBotTokenConfig.isPending || setWebhook.isPending || !form.watch("botToken")}
                 data-testid="btn-start-bot"
               >
-                {saveConfig.isPending || setWebhook.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                {saveBotTokenConfig.isPending || setWebhook.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                 Khởi động Bot
               </Button>
               <Button 
@@ -558,8 +579,8 @@ export default function SettingsBot() {
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button type="submit" disabled={saveConfig.isPending} data-testid="btn-save-welcome">
-                  {saveConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Button type="submit" disabled={saveShopInfoConfig.isPending} data-testid="btn-save-welcome">
+                  {saveShopInfoConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Lưu thông tin cửa hàng
                 </Button>
               </div>
@@ -638,8 +659,8 @@ export default function SettingsBot() {
                 />
               </div>
               <div className="flex justify-end">
-                <Button type="submit" disabled={saveConfig.isPending} data-testid="btn-save-menu-texts">
-                  {saveConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <Button type="submit" disabled={saveMenuTextsConfig.isPending} data-testid="btn-save-menu-texts">
+                  {saveMenuTextsConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Lưu nội dung menu
                 </Button>
               </div>

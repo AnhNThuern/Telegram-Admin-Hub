@@ -435,13 +435,19 @@ paths:
     post:
       operationId: notifyProductRestocked
       tags: [stocks]
-      summary: Broadcast a restock notification to all registered Telegram users
+      summary: Broadcast a restock notification to selected users
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotifyProductRequest"
       responses:
         "200":
           description: Broadcast result
@@ -449,6 +455,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NotifyProductResponse"
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /products/{id}/notify-estimate:
+    get:
+      operationId: getNotifyEstimate
+      tags: [stocks]
+      summary: Estimate how many users would be notified for a given audience
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: audience
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, buyers, requesters]
+      responses:
+        "200":
+          description: Estimated recipient count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotifyEstimateResponse"
         "404":
           description: Product not found
           content:
@@ -1139,6 +1176,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/PaymentConfig"
 
+  /payments/binance/webhook:
+    post:
+      operationId: handleBinanceWebhook
+      tags: [payments]
+      summary: Binance Pay payment webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /payments/binance/test-connection:
+    post:
+      operationId: testBinanceConnection
+      tags: [payments]
+      summary: Test Binance Pay credentials
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BinanceTestConnectionResponse"
+
   /payments/sepay/webhook:
     post:
       operationId: handleSepayWebhook
@@ -1519,6 +1588,10 @@ components:
         originalPrice:
           type: string
           nullable: true
+        usdtPrice:
+          type: string
+          nullable: true
+          description: USDT price (null = USDT payment not available for this product)
         productType:
           type: string
         minQuantity:
@@ -1574,6 +1647,10 @@ components:
         originalPrice:
           type: string
           nullable: true
+        usdtPrice:
+          type: string
+          nullable: true
+          description: USDT price (null = USDT payment not available for this product)
         productType:
           type: string
         minQuantity:
@@ -1644,6 +1721,9 @@ components:
           type: string
         originalPrice:
           type: string
+        usdtPrice:
+          type: string
+          nullable: true
         productType:
           type: string
         minQuantity:
@@ -1673,6 +1753,9 @@ components:
           type: string
         originalPrice:
           type: string
+        usdtPrice:
+          type: string
+          nullable: true
         productType:
           type: string
         minQuantity:
@@ -1747,6 +1830,14 @@ components:
         - added
         - message
 
+    NotifyProductRequest:
+      type: object
+      properties:
+        audience:
+          type: string
+          enum: [all, buyers, requesters]
+          description: Which users to notify. Defaults to "all".
+
     NotifyProductResponse:
       type: object
       properties:
@@ -1762,6 +1853,15 @@ components:
         - sent
         - total
         - message
+
+    NotifyEstimateResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Estimated number of recipients for the given audience
+      required:
+        - count
 
     StockRequester:
       type: object
@@ -2522,6 +2622,24 @@ components:
           description: Public URL admins should configure in SePay's webhook settings. Computed from REPLIT_DOMAINS at request time.
         isActive:
           type: boolean
+        binanceApiKey:
+          type: string
+          nullable: true
+        binanceApiSecret:
+          type: string
+          nullable: true
+        binanceMerchantTradeNoPrefix:
+          type: string
+          nullable: true
+        binanceIsActive:
+          type: boolean
+        binanceWebhookUrl:
+          type: string
+          nullable: true
+        usdtRate:
+          type: number
+          nullable: true
+          description: Global VND/USDT exchange rate used to compute USDT amounts in Binance Pay orders.
         updatedAt:
           type: string
           format: date-time
@@ -2529,6 +2647,7 @@ components:
       required:
         - provider
         - isActive
+        - binanceIsActive
 
     SavePaymentConfigRequest:
       type: object
@@ -2547,6 +2666,28 @@ components:
           type: string
         isActive:
           type: boolean
+        binanceApiKey:
+          type: string
+        binanceApiSecret:
+          type: string
+        binanceMerchantTradeNoPrefix:
+          type: string
+        binanceIsActive:
+          type: boolean
+        usdtRate:
+          type: number
+          description: Global VND/USDT exchange rate for Binance Pay orders.
+
+    BinanceTestConnectionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+      required:
+        - success
 
     SystemSettings:
       type: object
@@ -2555,6 +2696,8 @@ components:
           type: integer
         maxOrderAgeDays:
           type: integer
+        stockRequestWindowHours:
+          type: integer
         updatedAt:
           type: string
           format: date-time
@@ -2562,6 +2705,7 @@ components:
       required:
         - maxRetryCount
         - maxOrderAgeDays
+        - stockRequestWindowHours
 
     UpdateSystemSettingsRequest:
       type: object
@@ -2574,9 +2718,14 @@ components:
           type: integer
           minimum: 1
           maximum: 365
+        stockRequestWindowHours:
+          type: integer
+          minimum: 1
+          maximum: 168
       required:
         - maxRetryCount
         - maxOrderAgeDays
+        - stockRequestWindowHours
 
     I18nString:
       type: object

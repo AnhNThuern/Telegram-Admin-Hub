@@ -14,6 +14,7 @@ import { z } from "zod";
 const schema = z.object({
   maxRetryCount: z.coerce.number().int().min(1).max(1000),
   maxOrderAgeDays: z.coerce.number().int().min(1).max(365),
+  stockRequestWindowHours: z.coerce.number().int().min(1).max(168),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -30,7 +31,7 @@ export default function SettingsRetry() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { maxRetryCount: 10, maxOrderAgeDays: 7 },
+    defaultValues: { maxRetryCount: 10, maxOrderAgeDays: 7, stockRequestWindowHours: 24 },
   });
 
   useEffect(() => {
@@ -38,6 +39,7 @@ export default function SettingsRetry() {
       form.reset({
         maxRetryCount: settings.maxRetryCount,
         maxOrderAgeDays: settings.maxOrderAgeDays,
+        stockRequestWindowHours: settings.stockRequestWindowHours ?? 24,
       });
     }
   }, [settings, form]);
@@ -126,6 +128,28 @@ export default function SettingsRetry() {
                     </FormControl>
                     <p className="text-xs text-muted-foreground">
                       Mặc định: 7. Đơn cũ hơn số ngày này sẽ bị đánh dấu hết lượt thử ngay cả khi chưa đạt giới hạn số lần thử.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="stockRequestWindowHours"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Cửa sổ yêu cầu tồn kho (giờ)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={168}
+                        data-testid="input-stock-request-window-hours"
+                        {...field}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Mặc định: 24. Khoảng thời gian (tính bằng giờ) mà trong đó khách hàng không thể yêu cầu thông báo tồn kho cho cùng một sản phẩm. Tối thiểu 1 giờ, tối đa 168 giờ (7 ngày).
                     </p>
                     <FormMessage />
                   </FormItem>
