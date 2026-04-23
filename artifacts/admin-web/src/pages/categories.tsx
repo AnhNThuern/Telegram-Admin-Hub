@@ -45,9 +45,12 @@ export default function Categories() {
   });
 
   const onSubmit = (data: CategoryFormValues) => {
+    const trimmedIcon = data.icon?.trim();
     const payload = {
       name: data.name,
-      icon: data.icon || undefined,
+      // For updates, send trimmedIcon even when "" so the backend clears an
+      // existing icon. For creates, omit when empty (DB defaults to null).
+      icon: editingId !== null ? trimmedIcon : trimmedIcon || undefined,
       isActive: data.isActive,
     };
     if (editingId) {
