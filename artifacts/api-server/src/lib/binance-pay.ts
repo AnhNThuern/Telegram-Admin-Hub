@@ -8,6 +8,7 @@ export interface BinancePayConfig {
   apiSecret: string;
   merchantTradeNoPrefix: string;
   isActive: boolean;
+  usdtRate: number | null;
 }
 
 export interface BinancePayOrderResult {
@@ -34,6 +35,7 @@ export async function getBinancePayConfig(): Promise<BinancePayConfig | null> {
     apiSecret: config.binanceApiSecret,
     merchantTradeNoPrefix: config.binanceMerchantTradeNoPrefix ?? "SHOP",
     isActive: config.binanceIsActive,
+    usdtRate: config.usdtRate ? parseFloat(config.usdtRate) : null,
   };
 }
 

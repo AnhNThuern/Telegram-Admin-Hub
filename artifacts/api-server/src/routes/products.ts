@@ -50,7 +50,6 @@ router.get("/products", requireAuth, validateQuery(ListProductsQueryParams), asy
     productIcon: productsTable.productIcon,
     price: productsTable.price,
     originalPrice: productsTable.originalPrice,
-    usdtPrice: productsTable.usdtPrice,
     productType: productsTable.productType,
     minQuantity: productsTable.minQuantity,
     maxQuantity: productsTable.maxQuantity,
@@ -79,8 +78,8 @@ router.get("/products", requireAuth, validateQuery(ListProductsQueryParams), asy
 });
 
 router.post("/products", requireAuth, validateBody(CreateProductBody), async (req, res): Promise<void> => {
-  const body = req.body as z.infer<typeof CreateProductBody> & { usdtPrice?: string };
-  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, usdtPrice, productType, minQuantity, maxQuantity, isActive } = body;
+  const body = req.body as z.infer<typeof CreateProductBody>;
+  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = body;
   const [product] = await db.insert(productsTable).values({
     name,
     description,
@@ -89,7 +88,6 @@ router.post("/products", requireAuth, validateBody(CreateProductBody), async (re
     productIcon,
     price: String(price),
     originalPrice: originalPrice ? String(originalPrice) : undefined,
-    usdtPrice: usdtPrice ? String(usdtPrice) : undefined,
     productType: productType ?? "digital",
     minQuantity: minQuantity ?? 1,
     maxQuantity: maxQuantity ?? 100,
@@ -109,7 +107,6 @@ router.get("/products/:id", requireAuth, validateParams(GetProductParams), async
     productIcon: productsTable.productIcon,
     price: productsTable.price,
     originalPrice: productsTable.originalPrice,
-    usdtPrice: productsTable.usdtPrice,
     productType: productsTable.productType,
     minQuantity: productsTable.minQuantity,
     maxQuantity: productsTable.maxQuantity,
@@ -138,8 +135,8 @@ router.get("/products/:id", requireAuth, validateParams(GetProductParams), async
 
 router.patch("/products/:id", requireAuth, validateParams(UpdateProductParams), validateBody(UpdateProductBody), async (req, res): Promise<void> => {
   const { id } = req.params as unknown as z.infer<typeof UpdateProductParams>;
-  const body = req.body as z.infer<typeof UpdateProductBody> & { usdtPrice?: string | null };
-  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, usdtPrice, productType, minQuantity, maxQuantity, isActive } = body;
+  const body = req.body as z.infer<typeof UpdateProductBody>;
+  const { name, description, categoryId, categoryIcon, productIcon, price, originalPrice, productType, minQuantity, maxQuantity, isActive } = body;
 
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = name;
@@ -149,7 +146,6 @@ router.patch("/products/:id", requireAuth, validateParams(UpdateProductParams), 
   if (productIcon !== undefined) updateData.productIcon = productIcon;
   if (price !== undefined) updateData.price = String(price);
   if (originalPrice !== undefined) updateData.originalPrice = String(originalPrice);
-  if ("usdtPrice" in body) updateData.usdtPrice = usdtPrice ? String(usdtPrice) : null;
   if (productType !== undefined) updateData.productType = productType;
   if (minQuantity !== undefined) updateData.minQuantity = minQuantity;
   if (maxQuantity !== undefined) updateData.maxQuantity = maxQuantity;

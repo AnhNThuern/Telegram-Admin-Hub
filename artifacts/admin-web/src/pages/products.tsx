@@ -21,7 +21,6 @@ const productSchema = z.object({
   name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
   description: z.string().optional(),
   price: z.string().min(1, "Giá là bắt buộc"),
-  usdtPrice: z.string().optional(),
   categoryId: z.coerce.number().optional(),
   isActive: z.boolean().default(true),
   minQuantity: z.coerce.number().default(1),
@@ -140,7 +139,6 @@ export default function Products() {
       name: "",
       description: "",
       price: "",
-      usdtPrice: "",
       isActive: true,
       minQuantity: 1,
       maxQuantity: 999,
@@ -151,11 +149,9 @@ export default function Products() {
 
   const onSubmit = (data: ProductFormValues) => {
     const trimmedIcon = data.productIcon?.trim();
-    const trimmedUsdtPrice = data.usdtPrice?.trim();
     const normalizedData = {
       ...data,
       productIcon: editingId != null ? trimmedIcon : (trimmedIcon || undefined),
-      usdtPrice: trimmedUsdtPrice || null,
     };
     if (editingId) {
       updateProduct.mutate(
@@ -190,7 +186,6 @@ export default function Products() {
       name: product.name,
       description: product.description || "",
       price: product.price.toString(),
-      usdtPrice: product.usdtPrice || "",
       categoryId: product.categoryId || undefined,
       isActive: product.isActive,
       minQuantity: product.minQuantity,
@@ -270,20 +265,6 @@ export default function Products() {
                         <FormControl>
                           <Input placeholder="VD: 50000" {...field} data-testid="input-product-price" />
                         </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="usdtPrice"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Giá USDT (Binance Pay)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="VD: 2.50" {...field} data-testid="input-product-usdt-price" />
-                        </FormControl>
-                        <FormDescription className="text-xs">Để trống nếu không hỗ trợ thanh toán USDT.</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -434,7 +415,6 @@ export default function Products() {
                   <TableHead>Tên sản phẩm</TableHead>
                   <TableHead>Danh mục</TableHead>
                   <TableHead>Giá bán</TableHead>
-                  <TableHead>Giá USDT</TableHead>
                   <TableHead>Tồn kho</TableHead>
                   <TableHead
                     className="whitespace-nowrap cursor-pointer select-none hover:bg-muted/50 transition-colors"
@@ -471,13 +451,6 @@ export default function Products() {
                       )}
                     </TableCell>
                     <TableCell>{formatVND(product.price)}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {product.usdtPrice ? (
-                        <span className="text-amber-500">${parseFloat(product.usdtPrice).toFixed(2)}</span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
                     <TableCell>
                       <span className={`font-mono font-bold ${product.stockCount < 10 ? "text-destructive" : "text-emerald-500"}`}>
                         {product.stockCount}

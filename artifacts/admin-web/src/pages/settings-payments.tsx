@@ -28,6 +28,10 @@ const binanceSchema = z.object({
   binanceApiSecret: z.string().optional(),
   binanceMerchantTradeNoPrefix: z.string().optional(),
   binanceIsActive: z.boolean().default(false),
+  usdtRate: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : Number(val)),
+    z.number().positive("Tỷ giá phải lớn hơn 0").optional(),
+  ),
 });
 
 type PaymentFormValues = z.infer<typeof paymentSchema>;
@@ -66,6 +70,7 @@ export default function SettingsPayments() {
       binanceApiSecret: "",
       binanceMerchantTradeNoPrefix: "",
       binanceIsActive: false,
+      usdtRate: undefined,
     },
   });
 
@@ -85,6 +90,7 @@ export default function SettingsPayments() {
         binanceApiSecret: "",
         binanceMerchantTradeNoPrefix: config.binanceMerchantTradeNoPrefix || "",
         binanceIsActive: config.binanceIsActive ?? false,
+        usdtRate: config.usdtRate ? Number(config.usdtRate) : undefined,
       });
     }
   }, [config, form, binanceForm]);
@@ -120,6 +126,7 @@ export default function SettingsPayments() {
     const payload: Record<string, unknown> = {
       binanceIsActive: data.binanceIsActive,
       binanceMerchantTradeNoPrefix: data.binanceMerchantTradeNoPrefix || undefined,
+      usdtRate: data.usdtRate?.toString() ?? null,
     };
     if (data.binanceApiKey && !isMasked(data.binanceApiKey)) payload.binanceApiKey = data.binanceApiKey;
     if (data.binanceApiSecret && !isMasked(data.binanceApiSecret)) payload.binanceApiSecret = data.binanceApiSecret;
@@ -389,7 +396,7 @@ export default function SettingsPayments() {
             )}
           </CardTitle>
           <CardDescription>
-            Cho phép khách hàng thanh toán bằng USDT qua Binance Pay. Sản phẩm cần được cài giá USDT riêng.
+            Cho phép khách hàng thanh toán bằng USDT qua Binance Pay. Cấu hình tỷ giá VND/USDT để hệ thống tự chuyển đổi giá đơn hàng.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -489,13 +496,44 @@ export default function SettingsPayments() {
 
               <FormField
                 control={binanceForm.control}
+                name="usdtRate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tỷ giá VND/USDT</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="any"
+                        placeholder="VD: 25000 (1 USDT = 25,000 VND)"
+                        data-testid="input-usdt-rate"
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value)}
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Số VND tương đương 1 USDT. Hệ thống sẽ tự tính: tổng đơn (VND) ÷ tỷ giá = số USDT cần thanh toán.
+                      {config?.usdtRate && (
+                        <span className="block mt-1 text-amber-500 font-medium">
+                          Tỷ giá hiện tại: {Number(config.usdtRate).toLocaleString("vi-VN")} VND/USDT
+                        </span>
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={binanceForm.control}
                 name="binanceIsActive"
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border border-border p-4 bg-accent/30">
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">Kích hoạt Binance Pay</FormLabel>
                       <CardDescription>
-                        Hiển thị nút thanh toán USDT trên Bot khi sản phẩm có giá USDT
+                        Hiển thị nút thanh toán USDT trên Bot (cần có tỷ giá VND/USDT)
                       </CardDescription>
                     </div>
                     <FormControl>

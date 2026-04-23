@@ -12,7 +12,6 @@ export const productsTable = pgTable("products", {
   productIcon: text("product_icon"),
   price: numeric("price", { precision: 12, scale: 2 }).notNull(),
   originalPrice: numeric("original_price", { precision: 12, scale: 2 }),
-  usdtPrice: numeric("usdt_price", { precision: 12, scale: 6 }),
   productType: text("product_type").notNull().default("digital"),
   minQuantity: integer("min_quantity").notNull().default(1),
   maxQuantity: integer("max_quantity").notNull().default(100),

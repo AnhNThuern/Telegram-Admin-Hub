@@ -178,7 +178,6 @@ export const ListProductsResponse = zod.object({
       productIcon: zod.string().nullish(),
       price: zod.string(),
       originalPrice: zod.string().nullish(),
-      usdtPrice: zod.string().nullish(),
       productType: zod.string(),
       minQuantity: zod.number(),
       maxQuantity: zod.number(),
@@ -205,7 +204,6 @@ export const CreateProductBody = zod.object({
   productIcon: zod.string().optional(),
   price: zod.string(),
   originalPrice: zod.string().optional(),
-  usdtPrice: zod.string().nullish(),
   productType: zod.string().optional(),
   minQuantity: zod.number().optional(),
   maxQuantity: zod.number().optional(),
@@ -228,7 +226,6 @@ export const GetProductResponse = zod.object({
   productIcon: zod.string().nullish(),
   price: zod.string(),
   originalPrice: zod.string().nullish(),
-  usdtPrice: zod.string().nullish(),
   productType: zod.string(),
   minQuantity: zod.number(),
   maxQuantity: zod.number(),
@@ -264,7 +261,6 @@ export const UpdateProductBody = zod.object({
   productIcon: zod.string().optional(),
   price: zod.string().optional(),
   originalPrice: zod.string().optional(),
-  usdtPrice: zod.string().nullish(),
   productType: zod.string().optional(),
   minQuantity: zod.number().optional(),
   maxQuantity: zod.number().optional(),
@@ -280,7 +276,6 @@ export const UpdateProductResponse = zod.object({
   productIcon: zod.string().nullish(),
   price: zod.string(),
   originalPrice: zod.string().nullish(),
-  usdtPrice: zod.string().nullish(),
   productType: zod.string(),
   minQuantity: zod.number(),
   maxQuantity: zod.number(),
@@ -1199,6 +1194,7 @@ export const GetPaymentConfigResponse = zod.object({
   binanceApiSecret: zod.string().nullish(),
   binanceMerchantTradeNoPrefix: zod.string().nullish(),
   binanceIsActive: zod.boolean(),
+  usdtRate: zod.string().nullish(),
   binanceWebhookUrl: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });
@@ -1218,6 +1214,7 @@ export const SavePaymentConfigBody = zod.object({
   binanceApiSecret: zod.string().optional(),
   binanceMerchantTradeNoPrefix: zod.string().optional(),
   binanceIsActive: zod.boolean().optional(),
+  usdtRate: zod.string().nullish(),
 });
 
 export const SavePaymentConfigResponse = zod.object({
@@ -1240,6 +1237,7 @@ export const SavePaymentConfigResponse = zod.object({
   binanceApiSecret: zod.string().nullish(),
   binanceMerchantTradeNoPrefix: zod.string().nullish(),
   binanceIsActive: zod.boolean(),
+  usdtRate: zod.string().nullish(),
   binanceWebhookUrl: zod.string().nullish(),
   updatedAt: zod.coerce.date().nullish(),
 });

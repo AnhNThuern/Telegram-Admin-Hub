@@ -143,7 +143,6 @@ export interface Product {
   productIcon?: string | null;
   price: string;
   originalPrice?: string | null;
-  usdtPrice?: string | null;
   productType: string;
   minQuantity: number;
   maxQuantity: number;
@@ -163,7 +162,6 @@ export interface ProductDetail {
   productIcon?: string | null;
   price: string;
   originalPrice?: string | null;
-  usdtPrice?: string | null;
   productType: string;
   minQuantity: number;
   maxQuantity: number;
@@ -190,7 +188,6 @@ export interface CreateProductRequest {
   productIcon?: string;
   price: string;
   originalPrice?: string;
-  usdtPrice?: string | null;
   productType?: string;
   minQuantity?: number;
   maxQuantity?: number;
@@ -205,7 +202,6 @@ export interface UpdateProductRequest {
   productIcon?: string;
   price?: string;
   originalPrice?: string;
-  usdtPrice?: string | null;
   productType?: string;
   minQuantity?: number;
   maxQuantity?: number;
@@ -542,6 +538,7 @@ export interface PaymentConfig {
   binanceApiSecret?: string | null;
   binanceMerchantTradeNoPrefix?: string | null;
   binanceIsActive: boolean;
+  usdtRate?: string | null;
   binanceWebhookUrl?: string | null;
   updatedAt?: string | null;
 }
@@ -558,6 +555,7 @@ export interface SavePaymentConfigRequest {
   binanceApiSecret?: string;
   binanceMerchantTradeNoPrefix?: string;
   binanceIsActive?: boolean;
+  usdtRate?: string | null;
 }
 
 export interface BinanceTestConnectionResponse {

@@ -72,6 +72,7 @@ function buildConfigResponse(config: Awaited<ReturnType<typeof getConfig>>, webh
     binanceApiSecret: config.binanceApiSecret ? "****" : null,
     binanceMerchantTradeNoPrefix: config.binanceMerchantTradeNoPrefix,
     binanceIsActive: config.binanceIsActive,
+    usdtRate: config.usdtRate,
     binanceWebhookUrl: getBinanceWebhookUrl(),
     updatedAt: config.updatedAt,
   };
@@ -87,12 +88,13 @@ router.post("/payments/config", requireAuth, validateBody(SavePaymentConfigBody)
   const body = req.body as z.infer<typeof SavePaymentConfigBody>;
   const {
     bankName, bankCode, accountNumber, accountHolder, webhookSecret, apiKey, isActive,
-    binanceApiKey, binanceApiSecret, binanceMerchantTradeNoPrefix, binanceIsActive,
+    binanceApiKey, binanceApiSecret, binanceMerchantTradeNoPrefix, binanceIsActive, usdtRate,
   } = body as typeof body & {
     binanceApiKey?: string;
     binanceApiSecret?: string;
     binanceMerchantTradeNoPrefix?: string;
     binanceIsActive?: boolean;
+    usdtRate?: string | null;
   };
 
   const existing = await getConfig();
@@ -112,6 +114,7 @@ router.post("/payments/config", requireAuth, validateBody(SavePaymentConfigBody)
     if (binanceMerchantTradeNoPrefix !== undefined) updateData.binanceMerchantTradeNoPrefix = binanceMerchantTradeNoPrefix;
     if (binanceApiKey && !binanceApiKey.startsWith("****")) updateData.binanceApiKey = binanceApiKey;
     if (binanceApiSecret && !binanceApiSecret.startsWith("****")) updateData.binanceApiSecret = binanceApiSecret;
+    if (usdtRate !== undefined) updateData.usdtRate = usdtRate;
 
     const [c] = await db.update(paymentConfigsTable).set(updateData).where(eq(paymentConfigsTable.id, existing.id)).returning();
     config = c;
@@ -124,6 +127,7 @@ router.post("/payments/config", requireAuth, validateBody(SavePaymentConfigBody)
       binanceApiSecret: binanceApiSecret && !binanceApiSecret.startsWith("****") ? binanceApiSecret : undefined,
       binanceMerchantTradeNoPrefix: binanceMerchantTradeNoPrefix ?? "SHOP",
       binanceIsActive: binanceIsActive ?? false,
+      usdtRate: usdtRate ?? undefined,
     }).returning();
     config = c;
   }

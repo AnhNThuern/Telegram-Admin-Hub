@@ -1118,7 +1118,6 @@ async function showOrderConfirmScreen(
     id: productsTable.id,
     name: productsTable.name,
     price: productsTable.price,
-    usdtPrice: productsTable.usdtPrice,
     minQuantity: productsTable.minQuantity,
     maxQuantity: productsTable.maxQuantity,
   }).from(productsTable).where(eq(productsTable.id, productId));
@@ -1201,7 +1200,6 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       id: productsTable.id,
       name: productsTable.name,
       price: productsTable.price,
-      usdtPrice: productsTable.usdtPrice,
       minQuantity: productsTable.minQuantity,
       maxQuantity: productsTable.maxQuantity,
     }).from(productsTable).where(eq(productsTable.id, productId)).then(r => r[0]),
@@ -1383,7 +1381,8 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
 
   const { getBinancePayConfig } = await import("./binance-pay");
   const binanceCfg = await getBinancePayConfig();
-  const binanceAvailable = !!(binanceCfg?.isActive && product.usdtPrice);
+  const binanceAvailable = !!(binanceCfg?.isActive && binanceCfg?.usdtRate);
+  const usdtEquiv = binanceCfg?.usdtRate ? (orderTotal / binanceCfg.usdtRate).toFixed(2) : null;
 
   const orderCreatedHeader = shopName
     ? (lang === "en"
@@ -1405,8 +1404,8 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       [{ text: `${strings["btn.pay_wallet"]} (${balanceFormatted}${amountSuffix})`, callback_data: `pay_with_balance_${order.id}` }],
       [{ text: strings["btn.pay_bank"], callback_data: `show_bank_transfer_${order.id}` }],
     ];
-    if (binanceAvailable) {
-      keyboard.push([{ text: `💰 USDT via Binance Pay ($${parseFloat(product.usdtPrice!).toFixed(2)})`, callback_data: `show_binance_pay_${order.id}` }]);
+    if (binanceAvailable && usdtEquiv) {
+      keyboard.push([{ text: `💰 USDT via Binance Pay ($${usdtEquiv})`, callback_data: `show_binance_pay_${order.id}` }]);
     }
     keyboard.push([{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }]);
 
@@ -1430,7 +1429,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       reply_markup: {
         inline_keyboard: [
           [{ text: strings["btn.pay_bank"], callback_data: `show_bank_transfer_${order.id}` }],
-          [{ text: `💰 USDT via Binance Pay ($${parseFloat(product.usdtPrice!).toFixed(2)})`, callback_data: `show_binance_pay_${order.id}` }],
+          [{ text: `💰 USDT via Binance Pay ($${usdtEquiv})`, callback_data: `show_binance_pay_${order.id}` }],
           [{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }],
         ],
       },
@@ -1643,7 +1642,7 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
   const { createBinancePayOrder, getBinancePayConfig } = await import("./binance-pay");
   const binanceCfg = await getBinancePayConfig();
 
-  if (!binanceCfg?.isActive) {
+  if (!binanceCfg?.isActive || !binanceCfg?.usdtRate) {
     const unavailableMsg = lang === "en"
       ? "⚠️ Binance Pay is currently unavailable. Please choose another payment method."
       : "⚠️ Binance Pay hiện không khả dụng. Vui lòng chọn phương thức khác.";
@@ -1651,21 +1650,29 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
     return;
   }
 
+  // VND order total → USDT using admin-configured exchange rate
+  const vndTotal = parseFloat(order.totalAmount);
+  const usdtAmount = (vndTotal / binanceCfg.usdtRate).toFixed(8);
+  const usdtDisplay = parseFloat(usdtAmount).toFixed(2);
+  const vndDisplay = vndTotal.toLocaleString("vi-VN");
+
   // Check if there's already a pending Binance Pay transaction for this order
   const [existingBinanceTxn] = await db.select()
     .from(transactionsTable)
     .where(and(
       eq(transactionsTable.orderId, orderId),
-      eq(transactionsTable.type, "payment"),
+      eq(transactionsTable.provider, "binance"),
       eq(transactionsTable.status, "pending"),
     ))
     .limit(1);
 
   if (existingBinanceTxn?.binancePrepayId) {
-    const usdtAmount = existingBinanceTxn.amount;
+    const existingUsdt = existingBinanceTxn.cryptoAmount
+      ? parseFloat(existingBinanceTxn.cryptoAmount).toFixed(2)
+      : usdtDisplay;
     const msg = lang === "en"
-      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nOpen Binance app and complete payment.\n\n⏰ Complete it before it expires. Use "🔄 Refresh QR" if the QR has expired.`
-      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nMở ứng dụng Binance để hoàn tất thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn. Nhấn "🔄 Làm mới QR" nếu QR đã hết hạn.`;
+      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${vndDisplay}₫</b> ≈ <b>$${existingUsdt} USDT</b>\n\nOpen Binance app and complete payment.\n\n⏰ Complete it before it expires. Use "🔄 Refresh QR" if the QR has expired.`
+      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${vndDisplay}₫</b> ≈ <b>$${existingUsdt} USDT</b>\n\nMở ứng dụng Binance để hoàn tất thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn. Nhấn "🔄 Làm mới QR" nếu QR đã hết hạn.`;
     const existingKb = {
       inline_keyboard: [
         [{ text: lang === "en" ? "🔄 Refresh QR" : "🔄 Làm mới QR", callback_data: `refresh_binance_qr_${orderId}` }],
@@ -1676,29 +1683,16 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
     return;
   }
 
-  // Fetch product usdtPrice from the order items
+  // Fetch product name from order items for Binance Pay goods description
   const [item] = await db.select({
     productId: orderItemsTable.productId,
-    quantity: orderItemsTable.quantity,
-  }).from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId)).limit(1);
+    productName: productsTable.name,
+  }).from(orderItemsTable)
+    .leftJoin(productsTable, eq(orderItemsTable.productId, productsTable.id))
+    .where(eq(orderItemsTable.orderId, orderId)).limit(1);
 
-  if (!item) {
-    await sendMessage(chatId, lang === "en" ? "❌ Order item not found." : "❌ Không tìm thấy chi tiết đơn hàng.", { reply_markup: cancelKb });
-    return;
-  }
-
-  const [product] = await db.select({ usdtPrice: productsTable.usdtPrice, name: productsTable.name })
-    .from(productsTable).where(eq(productsTable.id, item.productId));
-
-  if (!product?.usdtPrice) {
-    const noUsdtMsg = lang === "en"
-      ? "⚠️ This product does not have a USDT price."
-      : "⚠️ Sản phẩm này chưa có giá USDT.";
-    await sendMessage(chatId, noUsdtMsg, { reply_markup: cancelKb });
-    return;
-  }
-
-  const usdtAmount = (parseFloat(product.usdtPrice) * item.quantity).toFixed(6);
+  const goodsName = item?.productName ?? "Order";
+  const goodsId = String(item?.productId ?? orderId);
 
   try {
     const prepayResult = await createBinancePayOrder({
@@ -1706,18 +1700,19 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
       apiSecret: binanceCfg.apiSecret,
       merchantTradeNo: `${binanceCfg.merchantTradeNoPrefix}${order.orderCode}`,
       orderAmount: usdtAmount,
-      goodsName: product.name,
-      goodsId: String(item.productId),
+      goodsName,
+      goodsId,
     });
 
-    // Save the prepay ID in transactions table
+    // Store VND in amount (accounting currency), USDT with full precision in cryptoAmount
     const binanceTxCode = `BP${order.orderCode}`;
     await db.insert(transactionsTable).values({
       transactionCode: binanceTxCode,
       orderId: order.id,
       type: "payment",
       status: "pending",
-      amount: usdtAmount,
+      amount: order.totalAmount,
+      cryptoAmount: usdtAmount,
       provider: "binance",
       binancePrepayId: prepayResult.prepayId,
       paymentReference: order.orderCode,
@@ -1727,8 +1722,8 @@ async function sendBinancePayForOrder(chatId: number | string, orderId: number, 
     const deeplink = prepayResult.universalUrl ?? prepayResult.checkoutUrl ?? null;
 
     const msg = lang === "en"
-      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nScan the QR code in your Binance app to pay.\n\n⏰ Complete payment before it expires.`
-      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${parseFloat(usdtAmount).toFixed(2)} USDT</b>\n\nQuét mã QR bằng ứng dụng Binance để thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn.`;
+      ? `💰 <b>Binance Pay - Order #${order.orderCode}</b>\n\nAmount: <b>${vndDisplay}₫</b> ≈ <b>$${usdtDisplay} USDT</b>\n\nScan the QR code in your Binance app to pay.\n\n⏰ Complete payment before it expires.`
+      : `💰 <b>Binance Pay - Đơn hàng #${order.orderCode}</b>\n\nSố tiền: <b>${vndDisplay}₫</b> ≈ <b>$${usdtDisplay} USDT</b>\n\nQuét mã QR bằng ứng dụng Binance để thanh toán.\n\n⏰ Vui lòng hoàn tất trước khi hết hạn.`;
 
     const paymentKeyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
     if (deeplink) {
