@@ -911,7 +911,7 @@ async function findRecentPromotionForCustomer(customerId: number): Promise<{ id:
   return { id: row.id, code: row.code };
 }
 
-async function promptForPromoCode(chatId: number | string, customerId: number, productId: number, quantity: number, editMessageId?: number): Promise<void> {
+async function promptForPromoCode(chatId: number | string, customerId: number, productId: number, quantity: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
   const { sql, count } = await import("drizzle-orm");
   const [product] = await db.select({
     id: productsTable.id,
@@ -921,33 +921,44 @@ async function promptForPromoCode(chatId: number | string, customerId: number, p
     maxQuantity: productsTable.maxQuantity,
   }).from(productsTable).where(eq(productsTable.id, productId));
 
+  const strings = await tMany([
+    "prod.not_found", "btn.home", "order.invalid_qty", "btn.back",
+    "prod.out_of_stock_req", "prod.stock_request", "prod.not_enough_qty",
+    "voucher.prompt", "voucher.last_used", "btn.reuse", "btn.skip",
+  ], lang);
+
   if (!product) {
-    await renderView(chatId, editMessageId, "❌ Sản phẩm không còn tồn tại.", {
-      reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] },
+    await renderView(chatId, editMessageId, strings["prod.not_found"], {
+      reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
     });
     return;
   }
   const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
   const stockCount = Number(stockRow?.c ?? 0);
   if (quantity < product.minQuantity || quantity > product.maxQuantity) {
-    await renderView(chatId, editMessageId, `❌ Số lượng không hợp lệ. Mua từ ${product.minQuantity} đến ${product.maxQuantity}.`, {
-      reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
+    const msg = strings["order.invalid_qty"]
+      .replace("{min}", String(product.minQuantity))
+      .replace("{max}", String(product.maxQuantity));
+    await renderView(chatId, editMessageId, msg, {
+      reply_markup: { inline_keyboard: [[{ text: strings["btn.back"], callback_data: `prod_${productId}` }]] },
     });
     return;
   }
   if (stockCount < quantity) {
     if (stockCount === 0) {
-      await renderView(chatId, editMessageId, `❌ <b>${product.name}</b> hiện đã hết hàng.\n\nBạn có thể yêu cầu shop nhập thêm hàng.`, {
+      const msg = strings["prod.out_of_stock_req"].replace("{name}", product.name);
+      await renderView(chatId, editMessageId, msg, {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
-            [{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+            [{ text: strings["prod.stock_request"], callback_data: `stock_request_${productId}` }],
+            [{ text: strings["btn.back"], callback_data: `prod_${productId}` }, { text: strings["btn.home"], callback_data: "main_menu" }],
           ],
         },
       });
     } else {
-      await renderView(chatId, editMessageId, `❌ Không đủ hàng. Chỉ còn <b>${stockCount}</b> sản phẩm. Vui lòng chọn số lượng phù hợp.`, {
-        reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
+      const msg = strings["prod.not_enough_qty"].replace("{n}", String(stockCount));
+      await renderView(chatId, editMessageId, msg, {
+        reply_markup: { inline_keyboard: [[{ text: strings["btn.back"], callback_data: `prod_${productId}` }]] },
       });
     }
     return;
@@ -955,6 +966,7 @@ async function promptForPromoCode(chatId: number | string, customerId: number, p
 
   const subtotal = parseFloat(product.price) * quantity;
   const subtotalFormatted = subtotal.toLocaleString("vi-VN");
+  const amountSuffix = lang === "en" ? "₫" : "đ";
 
   await setAwaitingPromo(chatId, productId, quantity);
   await logBotAction("promo_prompt", String(chatId), customerId, `Promo prompt for ${product.name} x${quantity}`, { productId, quantity });
@@ -962,23 +974,22 @@ async function promptForPromoCode(chatId: number | string, customerId: number, p
   const recent = await findRecentPromotionForCustomer(customerId);
 
   const msg =
-    `🛒 <b>${product.name}</b> x${quantity} — ${subtotalFormatted}đ\n\n` +
-    `🎟️ <b>Nhập mã giảm giá (hoặc bỏ qua)</b>\n` +
-    `<i>Gõ mã giảm giá vào ô chat, hoặc bấm "Bỏ qua" để tiếp tục.</i>` +
-    (recent ? `\n\n<i>Lần trước bạn đã dùng mã <code>${recent.code}</code>.</i>` : "");
+    `🛒 <b>${product.name}</b> x${quantity} — ${subtotalFormatted}${amountSuffix}\n\n` +
+    strings["voucher.prompt"] +
+    (recent ? `\n\n<i>${strings["voucher.last_used"]} <code>${recent.code}</code>.</i>` : "");
 
   // Top row: "Dùng lại MÃXXX" (when available) alongside "Bỏ qua".
   const topRow: Array<{ text: string; callback_data: string }> = [];
   if (recent) {
-    topRow.push({ text: `🔁 Dùng lại ${recent.code}`, callback_data: `reuse_promo_${recent.id}_${productId}_${quantity}` });
+    topRow.push({ text: `${strings["btn.reuse"]} ${recent.code}`, callback_data: `reuse_promo_${recent.id}_${productId}_${quantity}` });
   }
-  topRow.push({ text: "⏭️ Bỏ qua", callback_data: `skip_promo_${productId}_${quantity}` });
+  topRow.push({ text: strings["btn.skip"], callback_data: `skip_promo_${productId}_${quantity}` });
 
   await renderView(chatId, editMessageId, msg, {
     reply_markup: {
       inline_keyboard: [
         topRow,
-        [{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+        [{ text: strings["btn.back"], callback_data: `prod_${productId}` }, { text: strings["btn.home"], callback_data: "main_menu" }],
       ],
     },
   });
@@ -1078,7 +1089,7 @@ async function showOrderConfirmScreen(
   await renderView(chatId, editMessageId, msg, { reply_markup: { inline_keyboard: keyboard } });
 }
 
-async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null): Promise<void> {
+async function createOrderFromBot(chatId: number | string, customerId: number, productId: number, quantity: number, promotion: ValidPromotion | null = null, lang: Lang = "vi"): Promise<void> {
   const { sql, count } = await import("drizzle-orm");
   const [product] = await db.select({
     id: productsTable.id,
@@ -1088,31 +1099,45 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     maxQuantity: productsTable.maxQuantity,
   }).from(productsTable).where(eq(productsTable.id, productId));
 
+  const strings = await tMany([
+    "prod.not_found", "order.invalid_qty", "prod.out_of_stock_req", "prod.stock_request",
+    "btn.home", "btn.back", "prod.not_enough_qty", "order.created", "order.product_line",
+    "order.subtotal_line", "order.promo_line", "order.total_line", "order.wallet_balance_line",
+    "order.payment_choice", "btn.pay_wallet", "btn.pay_bank", "btn.cancel_order",
+    "order.bank_info_title", "order.bank_name", "order.account_number", "order.account_holder",
+    "order.amount", "order.transfer_note", "order.transfer_warning", "order.low_balance_hint",
+    "order.contact_admin", "order.no_payment_config", "prod.out_of_stock_race",
+  ], lang);
+
+  const amountSuffix = lang === "en" ? "₫" : "đ";
+
   if (!product) {
-    await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
+    await sendMessage(chatId, strings["prod.not_found"]);
     return;
   }
   const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
   const stockCount = Number(stockRow?.c ?? 0);
 
   if (quantity < product.minQuantity || quantity > product.maxQuantity) {
-    await sendMessage(chatId, `❌ Số lượng không hợp lệ. Mua từ ${product.minQuantity} đến ${product.maxQuantity}.`);
+    await sendMessage(chatId, strings["order.invalid_qty"]
+      .replace("{min}", String(product.minQuantity))
+      .replace("{max}", String(product.maxQuantity)));
     return;
   }
 
   if (stockCount < quantity) {
     if (stockCount === 0) {
-      await sendMessage(chatId, `❌ <b>${product.name}</b> hiện đã hết hàng. Vui lòng quay lại sau.`, {
+      await sendMessage(chatId, strings["prod.out_of_stock_req"].replace("{name}", product.name), {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
-            [{ text: "🏠 Trang chủ", callback_data: "main_menu" }],
+            [{ text: strings["prod.stock_request"], callback_data: `stock_request_${productId}` }],
+            [{ text: strings["btn.home"], callback_data: "main_menu" }],
           ],
         },
       });
     } else {
-      await sendMessage(chatId, `❌ Không đủ hàng. Chỉ còn <b>${stockCount}</b> sản phẩm.`, {
-        reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }]] },
+      await sendMessage(chatId, strings["prod.not_enough_qty"].replace("{n}", String(stockCount)), {
+        reply_markup: { inline_keyboard: [[{ text: strings["btn.back"], callback_data: `prod_${productId}` }]] },
       });
     }
     return;
@@ -1185,11 +1210,11 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   } catch (err) {
     if ((err as Error).message === STOCK_DEPLETED_AT_CREATION) {
       // Stock was depleted between our pre-check and the reservation attempt.
-      await sendMessage(chatId, `❌ <b>${product.name}</b> đã hết hàng vào lúc xác nhận đơn. Vui lòng thử lại.`, {
+      await sendMessage(chatId, strings["prod.out_of_stock_race"].replace("{name}", product.name), {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
-            [{ text: "🏠 Trang chủ", callback_data: "main_menu" }],
+            [{ text: strings["prod.stock_request"], callback_data: `stock_request_${productId}` }],
+            [{ text: strings["btn.home"], callback_data: "main_menu" }],
           ],
         },
       });
@@ -1214,10 +1239,12 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   const subtotalFormatted = subtotal.toLocaleString("vi-VN");
   const discountFormatted = discount.toLocaleString("vi-VN");
   const promoLine = promotion
-    ? `🎟️ Mã giảm giá: <code>${promotion.code}</code> (−${discountFormatted}đ)\n`
+    ? strings["order.promo_line"]
+        .replace("{code}", promotion.code)
+        .replace("{amount}", discountFormatted) + "\n"
     : "";
   const subtotalLine = promotion
-    ? `🧾 Tạm tính: <s>${subtotalFormatted}đ</s>\n${promoLine}`
+    ? strings["order.subtotal_line"].replace("{amount}", subtotalFormatted) + "\n" + promoLine
     : "";
 
   // Check customer's wallet balance
@@ -1228,19 +1255,19 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   if (customerBalance >= orderTotal) {
     // Offer both payment methods
     const balanceFormatted = customerBalance.toLocaleString("vi-VN");
-    let msg = `✅ <b>Đơn hàng #${orderCode} đã tạo!</b>\n\n`;
-    msg += `📦 Sản phẩm: ${product.name} x${quantity}\n`;
+    let msg = strings["order.created"].replace("{code}", orderCode) + "\n\n";
+    msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
     msg += subtotalLine;
-    msg += `💰 Tổng tiền: <b>${amountFormatted}đ</b>\n`;
-    msg += `👛 Số dư ví: <b>${balanceFormatted}đ</b>\n\n`;
-    msg += `Bạn muốn thanh toán bằng cách nào?`;
+    msg += strings["order.total_line"].replace("{amount}", amountFormatted) + "\n";
+    msg += strings["order.wallet_balance_line"].replace("{balance}", balanceFormatted) + "\n\n";
+    msg += strings["order.payment_choice"];
 
     await sendMessage(chatId, msg, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: `💰 Trả bằng số dư (${balanceFormatted}đ)`, callback_data: `pay_with_balance_${order.id}` }],
-          [{ text: "🏦 Chuyển khoản ngân hàng", callback_data: `show_bank_transfer_${order.id}` }],
-          [{ text: "❌ Hủy đơn hàng", callback_data: `cancel_order_${order.id}` }],
+          [{ text: `${strings["btn.pay_wallet"]} (${balanceFormatted}${amountSuffix})`, callback_data: `pay_with_balance_${order.id}` }],
+          [{ text: strings["btn.pay_bank"], callback_data: `show_bank_transfer_${order.id}` }],
+          [{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }],
         ],
       },
     });
@@ -1253,23 +1280,23 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
   const paymentInfo = await createPaymentRequest(order.id);
 
   if (paymentInfo) {
-    let msg = `✅ <b>Đơn hàng #${orderCode} đã tạo!</b>\n\n`;
-    msg += `📦 Sản phẩm: ${product.name} x${quantity}\n`;
+    let msg = strings["order.created"].replace("{code}", orderCode) + "\n\n";
+    msg += strings["order.product_line"].replace("{product}", product.name).replace("{qty}", String(quantity)) + "\n";
     msg += subtotalLine;
-    msg += `💰 Tổng tiền: <b>${amountFormatted}đ</b>\n\n`;
-    msg += `🏦 <b>Thông tin thanh toán:</b>\n`;
-    msg += `Ngân hàng: <b>${paymentInfo.bankName}</b>\n`;
-    msg += `Số tài khoản: <code>${paymentInfo.accountNumber}</code>\n`;
-    msg += `Chủ TK: <b>${paymentInfo.accountHolder}</b>\n`;
-    msg += `Số tiền: <b>${amountFormatted}đ</b>\n`;
-    msg += `Nội dung CK: <code>${paymentInfo.reference}</code>\n\n`;
-    msg += `⚠️ <i>Vui lòng chuyển khoản đúng nội dung để đơn hàng được xử lý tự động.</i>`;
+    msg += strings["order.total_line"].replace("{amount}", amountFormatted) + "\n\n";
+    msg += strings["order.bank_info_title"] + "\n";
+    msg += strings["order.bank_name"] + ` <b>${paymentInfo.bankName}</b>\n`;
+    msg += strings["order.account_number"] + ` <code>${paymentInfo.accountNumber}</code>\n`;
+    msg += strings["order.account_holder"] + ` <b>${paymentInfo.accountHolder}</b>\n`;
+    msg += strings["order.amount"] + ` <b>${amountFormatted}${amountSuffix}</b>\n`;
+    msg += strings["order.transfer_note"] + ` <code>${paymentInfo.reference}</code>\n\n`;
+    msg += strings["order.transfer_warning"];
 
     if (customerBalance > 0) {
-      msg += `\n\n💡 <i>Số dư ví ${customerBalance.toLocaleString("vi-VN")}đ chưa đủ để thanh toán. Nạp thêm bằng /naptien để thanh toán nhanh hơn.</i>`;
+      msg += "\n\n" + strings["order.low_balance_hint"].replace("{balance}", customerBalance.toLocaleString("vi-VN"));
     }
 
-    const cancelKeyboard = { inline_keyboard: [[{ text: "❌ Hủy đơn hàng", callback_data: `cancel_order_${order.id}` }]] };
+    const cancelKeyboard = { inline_keyboard: [[{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }]] };
     if (paymentInfo.qrUrl) {
       const sent = await sendPhoto(chatId, paymentInfo.qrUrl, msg, cancelKeyboard);
       if (!sent) await sendMessage(chatId, msg, { reply_markup: cancelKeyboard });
@@ -1278,34 +1305,42 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     }
     await logBotAction("payment_initiated", String(chatId), customerId, `Payment for order ${orderCode}`, { orderId: order.id, reference: paymentInfo.reference });
   } else {
-    await sendMessage(chatId, `✅ Đơn hàng <b>${orderCode}</b> đã tạo! Vui lòng liên hệ admin để thanh toán.`, {
-      reply_markup: { inline_keyboard: [[{ text: "❌ Hủy đơn hàng", callback_data: `cancel_order_${order.id}` }]] },
+    await sendMessage(chatId, strings["order.contact_admin"].replace("{code}", orderCode), {
+      reply_markup: { inline_keyboard: [[{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${order.id}` }]] },
     });
   }
 }
 
-async function cancelOrderByCustomer(chatId: number | string, orderId: number, customerId: number, messageId?: number): Promise<void> {
+async function cancelOrderByCustomer(chatId: number | string, orderId: number, customerId: number, messageId?: number, lang: Lang = "vi"): Promise<void> {
   const [order] = await db.select().from(ordersTable).where(
     and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
   );
 
+  const strings = await tMany([
+    "order.not_found", "btn.home", "order.cancel_cannot", "order.cancel_success",
+    "btn.continue_shopping", "order.status.paid_label", "order.status.delivered_label",
+    "order.status.cancelled_label", "order.status.failed_label",
+  ], lang);
+
   if (!order) {
-    await sendMessage(chatId, "❌ Không tìm thấy đơn hàng.");
+    await sendMessage(chatId, strings["order.not_found"]);
     return;
   }
   if (order.status !== "pending") {
     const statusLabels: Record<string, string> = {
-      paid: "đã thanh toán",
-      delivered: "đã giao",
-      cancelled: "đã bị hủy trước đó",
-      failed: "đã thất bại",
+      paid: strings["order.status.paid_label"],
+      delivered: strings["order.status.delivered_label"],
+      cancelled: strings["order.status.cancelled_label"],
+      failed: strings["order.status.failed_label"],
     };
     const label = statusLabels[order.status] ?? order.status;
-    const msg = `❌ Đơn hàng <b>#${order.orderCode}</b> không thể hủy vì ${label}.`;
+    const msg = strings["order.cancel_cannot"]
+      .replace("{code}", order.orderCode)
+      .replace("{status}", label);
     if (messageId) {
-      await renderView(chatId, messageId, msg, { reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] } });
+      await renderView(chatId, messageId, msg, { reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] } });
     } else {
-      await sendMessage(chatId, msg, { reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] } });
+      await sendMessage(chatId, msg, { reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] } });
     }
     return;
   }
@@ -1325,12 +1360,12 @@ async function cancelOrderByCustomer(chatId: number | string, orderId: number, c
 
   await logBotAction("cancel_order", String(chatId), customerId, `Customer cancelled order ${order.orderCode}`, { orderId });
 
-  const msg = `✅ Đơn hàng <b>#${order.orderCode}</b> đã được hủy thành công.\n\nTồn kho đã được hoàn trả. Bạn có thể đặt hàng lại bất cứ lúc nào.`;
+  const msg = strings["order.cancel_success"].replace("{code}", order.orderCode);
   if (messageId) {
     await renderView(chatId, messageId, msg, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: "🛍️ Tiếp tục mua hàng", callback_data: "main_menu" }],
+          [{ text: strings["btn.continue_shopping"], callback_data: "main_menu" }],
         ],
       },
     });
@@ -1338,19 +1373,28 @@ async function cancelOrderByCustomer(chatId: number | string, orderId: number, c
     await sendMessage(chatId, msg, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: "🛍️ Tiếp tục mua hàng", callback_data: "main_menu" }],
+          [{ text: strings["btn.continue_shopping"], callback_data: "main_menu" }],
         ],
       },
     });
   }
 }
 
-async function sendBankTransferForOrder(chatId: number | string, orderId: number, customerId: number): Promise<void> {
+async function sendBankTransferForOrder(chatId: number | string, orderId: number, customerId: number, lang: Lang = "vi"): Promise<void> {
   const [order] = await db.select().from(ordersTable).where(
     and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
   );
+
+  const strings = await tMany([
+    "order.bank_invalid", "order.bank_config_error", "order.bank_transfer_title",
+    "order.bank_name", "order.account_number", "order.account_holder", "order.amount",
+    "order.transfer_note", "order.bank_scan_hint", "order.transfer_warning",
+    "order.low_balance_hint", "btn.cancel_order",
+  ], lang);
+  const amountSuffix = lang === "en" ? "₫" : "đ";
+
   if (!order || order.status !== "pending") {
-    await sendMessage(chatId, "❌ Đơn hàng không còn hợp lệ để thanh toán.");
+    await sendMessage(chatId, strings["order.bank_invalid"]);
     return;
   }
 
@@ -1389,24 +1433,24 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
   }
 
   if (!paymentInfo) {
-    await sendMessage(chatId, "❌ Không thể tạo thông tin thanh toán. Vui lòng liên hệ admin.");
+    await sendMessage(chatId, strings["order.bank_config_error"]);
     return;
   }
 
   const amountFormatted = parseFloat(order.totalAmount).toLocaleString("vi-VN");
-  let msg = `🏦 <b>Thanh toán chuyển khoản cho đơn ${order.orderCode}</b>\n\n`;
-  msg += `Ngân hàng: <b>${paymentInfo.bankName}</b>\n`;
-  msg += `Số tài khoản: <code>${paymentInfo.accountNumber}</code>\n`;
-  msg += `Chủ TK: <b>${paymentInfo.accountHolder}</b>\n`;
-  msg += `Số tiền: <b>${amountFormatted}đ</b>\n`;
-  msg += `Nội dung CK: <code>${paymentInfo.reference}</code>\n\n`;
-  msg += `📱 <i>Quét mã QR bên trên hoặc chuyển khoản theo thông tin trên.</i>\n`;
-  msg += `⚠️ <i>Vui lòng chuyển khoản đúng nội dung để đơn hàng được xử lý tự động.</i>`;
+  let msg = strings["order.bank_transfer_title"].replace("{code}", order.orderCode) + "\n\n";
+  msg += strings["order.bank_name"] + ` <b>${paymentInfo.bankName}</b>\n`;
+  msg += strings["order.account_number"] + ` <code>${paymentInfo.accountNumber}</code>\n`;
+  msg += strings["order.account_holder"] + ` <b>${paymentInfo.accountHolder}</b>\n`;
+  msg += strings["order.amount"] + ` <b>${amountFormatted}${amountSuffix}</b>\n`;
+  msg += strings["order.transfer_note"] + ` <code>${paymentInfo.reference}</code>\n\n`;
+  msg += strings["order.bank_scan_hint"] + "\n";
+  msg += strings["order.transfer_warning"];
 
   // If we have a SePay QR URL, send the QR image with the payment details as the
   // caption — this matches the topup flow and lets customers pay by scanning.
   // Fall back to a plain text message if QR generation failed for any reason.
-  const cancelKeyboard = { inline_keyboard: [[{ text: "❌ Hủy đơn hàng", callback_data: `cancel_order_${orderId}` }]] };
+  const cancelKeyboard = { inline_keyboard: [[{ text: strings["btn.cancel_order"], callback_data: `cancel_order_${orderId}` }]] };
   if (paymentInfo.qrUrl) {
     const sent = await sendPhoto(chatId, paymentInfo.qrUrl, msg, cancelKeyboard);
     if (!sent) {
@@ -1675,6 +1719,7 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
 }
 
 async function showWalletHistory(chatId: number | string, customer: typeof customersTable.$inferSelect, editMessageId?: number): Promise<void> {
+  const lang = (customer.language ?? "vi") as Lang;
   const txns = await db.select()
     .from(transactionsTable)
     .where(and(
@@ -1685,19 +1730,25 @@ async function showWalletHistory(chatId: number | string, customer: typeof custo
     .orderBy(desc(transactionsTable.createdAt))
     .limit(10);
 
+  const strings = await tMany([
+    "wallet.title", "wallet.balance", "wallet.none", "wallet.recent_n",
+    "wallet.topup", "wallet.payment", "wallet.balance_after_line", "btn.home",
+  ], lang);
+  const amountSuffix = lang === "en" ? "₫" : "đ";
+
   const balanceFormatted = parseFloat(customer.balance).toLocaleString("vi-VN");
-  let msg = `💳 <b>Lịch sử ví</b>\n\n`;
-  msg += `👛 Số dư hiện tại: <b>${balanceFormatted}đ</b>\n\n`;
+  let msg = strings["wallet.title"] + "\n\n";
+  msg += strings["wallet.balance"] + ` <b>${balanceFormatted}${amountSuffix}</b>\n\n`;
 
   if (txns.length === 0) {
-    msg += `<i>Chưa có giao dịch ví nào.</i>\n\nDùng <code>/naptien [số tiền]</code> để nạp tiền vào ví.`;
+    msg += strings["wallet.none"];
   } else {
-    msg += `<b>${txns.length} giao dịch gần nhất:</b>\n`;
+    msg += `<b>${strings["wallet.recent_n"].replace("{n}", String(txns.length))}</b>\n`;
     let runningBalance = parseFloat(customer.balance);
-    for (const t of txns) {
-      const amount = parseFloat(t.amount);
+    for (const txn of txns) {
+      const amount = parseFloat(txn.amount);
       const amountFormatted = amount.toLocaleString("vi-VN");
-      const date = new Date(t.createdAt).toLocaleString("vi-VN", {
+      const date = new Date(txn.createdAt).toLocaleString("vi-VN", {
         timeZone: "Asia/Ho_Chi_Minh",
         day: "2-digit",
         month: "2-digit",
@@ -1705,41 +1756,56 @@ async function showWalletHistory(chatId: number | string, customer: typeof custo
         hour: "2-digit",
         minute: "2-digit",
       });
-      const isTopup = t.type === "topup";
-      const label = isTopup ? "⬆️ Nạp tiền" : "⬇️ Thanh toán";
+      const isTopup = txn.type === "topup";
+      const label = isTopup ? strings["wallet.topup"] : strings["wallet.payment"];
       const sign = isTopup ? "+" : "−";
-      const balanceAfter = runningBalance;
-      const balanceAfterFormatted = balanceAfter.toLocaleString("vi-VN");
-      msg += `\n${label}\n   ${sign}${amountFormatted}đ • ${date}\n   👛 Số dư sau: <b>${balanceAfterFormatted}đ</b>\n`;
+      const balanceAfterFormatted = runningBalance.toLocaleString("vi-VN");
+      msg += `\n${label}\n   ${sign}${amountFormatted}${amountSuffix} • ${date}\n${strings["wallet.balance_after_line"].replace("{amount}", balanceAfterFormatted)}\n`;
       runningBalance = isTopup ? runningBalance - amount : runningBalance + amount;
     }
   }
 
   await renderView(chatId, editMessageId, msg, {
     reply_markup: {
-      inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]],
+      inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]],
     },
   });
 }
 
-async function showMyOrders(chatId: number | string, customerId: number, editMessageId?: number): Promise<void> {
+async function showMyOrders(chatId: number | string, customerId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
   const recentOrders = await db.select().from(ordersTable)
     .where(eq(ordersTable.customerId, customerId))
     .orderBy(desc(ordersTable.createdAt))
     .limit(5);
+
+  const strings = await tMany([
+    "orders.none", "orders.recent_title", "btn.home",
+    "orders.status.pending", "orders.status.paid", "orders.status.delivered",
+    "orders.status.failed_label", "orders.status.cancelled", "orders.status.needs_manual_label",
+    "orders.amount_suffix",
+  ], lang);
+
   if (recentOrders.length === 0) {
-    await renderView(chatId, editMessageId, "📦 Bạn chưa có đơn hàng nào.", {
-      reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] },
+    await renderView(chatId, editMessageId, strings["orders.none"], {
+      reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
     });
     return;
   }
-  let msg = "📦 <b>Đơn hàng gần đây:</b>\n\n";
+  let msg = strings["orders.recent_title"] + "\n\n";
   recentOrders.forEach(o => {
-    const statusMap: Record<string, string> = { pending: "⏳ Chờ TT", paid: "✅ Đã TT", delivered: "📬 Đã giao", failed: "❌ Lỗi", cancelled: "🚫 Huỷ", needs_manual_action: "⚠️ Cần xử lý" };
-    msg += `• <b>${o.orderCode}</b> - ${parseFloat(o.totalAmount).toLocaleString("vi-VN")}đ - ${statusMap[o.status] ?? o.status}\n`;
+    const statusMap: Record<string, string> = {
+      pending: strings["orders.status.pending"],
+      paid: strings["orders.status.paid"],
+      delivered: strings["orders.status.delivered"],
+      failed: strings["orders.status.failed_label"],
+      cancelled: strings["orders.status.cancelled"],
+      needs_manual_action: strings["orders.status.needs_manual_label"],
+    };
+    const amountSuffix = strings["orders.amount_suffix"] || (lang === "en" ? "₫" : "đ");
+    msg += `• <b>${o.orderCode}</b> - ${parseFloat(o.totalAmount).toLocaleString("vi-VN")}${amountSuffix} - ${statusMap[o.status] ?? o.status}\n`;
   });
   await renderView(chatId, editMessageId, msg, {
-    reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] },
+    reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
   });
 }
 
@@ -1750,25 +1816,26 @@ async function showMyOrders(chatId: number | string, customerId: number, editMes
 const TOPUP_PRESET_AMOUNTS = [50000, 100000, 200000, 500000, 1000000];
 
 async function handleTopup(chatId: number | string, customer: typeof customersTable.$inferSelect, text: string): Promise<void> {
+  const lang = (customer.language ?? "vi") as Lang;
   const parts = text.trim().split(/\s+/);
   const rawAmount = parts[1];
+
+  const strings = await tMany(["topup.choose_balance_msg", "topup.invalid_example"], lang);
+  const amountSuffix = lang === "en" ? "₫" : "đ";
 
   if (!rawAmount) {
     const keyboard = [
       TOPUP_PRESET_AMOUNTS.slice(0, 3).map(n => ({
-        text: `${n.toLocaleString("vi-VN")}đ`,
+        text: `${n.toLocaleString("vi-VN")}${amountSuffix}`,
         callback_data: `topup_amount_${n}`,
       })),
       TOPUP_PRESET_AMOUNTS.slice(3).map(n => ({
-        text: `${n.toLocaleString("vi-VN")}đ`,
+        text: `${n.toLocaleString("vi-VN")}${amountSuffix}`,
         callback_data: `topup_amount_${n}`,
       })),
     ];
     await sendMessage(chatId,
-      `💳 <b>Nạp tiền vào tài khoản</b>\n\n` +
-      `👛 Số dư hiện tại: <b>${parseFloat(customer.balance).toLocaleString("vi-VN")}đ</b>\n\n` +
-      `Chọn số tiền muốn nạp bên dưới hoặc gõ <code>/naptien [số tiền]</code> để nhập số tiền tuỳ chọn.\n` +
-      `Ví dụ: <code>/naptien 100000</code>`,
+      strings["topup.choose_balance_msg"].replace("{balance}", parseFloat(customer.balance).toLocaleString("vi-VN")),
       { reply_markup: { inline_keyboard: keyboard } }
     );
     return;
@@ -1776,7 +1843,7 @@ async function handleTopup(chatId: number | string, customer: typeof customersTa
 
   const amount = parseInt(rawAmount.replace(/[.,]/g, ""), 10);
   if (isNaN(amount) || amount <= 0) {
-    await sendMessage(chatId, "❌ Số tiền không hợp lệ. Vui lòng nhập số tiền dương.\nVí dụ: <code>/naptien 100000</code>");
+    await sendMessage(chatId, strings["topup.invalid_example"]);
     return;
   }
 
@@ -1784,8 +1851,11 @@ async function handleTopup(chatId: number | string, customer: typeof customersTa
 }
 
 async function executeTopup(chatId: number | string, customer: typeof customersTable.$inferSelect, amount: number): Promise<void> {
+  const lang = (customer.language ?? "vi") as Lang;
+  const strings = await tMany(["topup.min_error", "topup.no_config", "topup.caption"], lang);
+
   if (amount < 10000) {
-    await sendMessage(chatId, "❌ Số tiền nạp tối thiểu là <b>10.000đ</b>.");
+    await sendMessage(chatId, strings["topup.min_error"]);
     return;
   }
 
@@ -1793,19 +1863,17 @@ async function executeTopup(chatId: number | string, customer: typeof customersT
   const topupInfo = await createTopupRequest(customer.id, amount);
 
   if (!topupInfo) {
-    await sendMessage(chatId, "❌ Không thể tạo yêu cầu nạp tiền. Vui lòng liên hệ admin.");
+    await sendMessage(chatId, strings["topup.no_config"]);
     return;
   }
 
   const amountFormatted = amount.toLocaleString("vi-VN");
-  const caption =
-    `💳 <b>Nạp tiền ${amountFormatted}đ</b>\n\n` +
-    `🏦 Ngân hàng: <b>${topupInfo.bankName}</b>\n` +
-    `💳 Số tài khoản: <code>${topupInfo.accountNumber}</code>\n` +
-    `👤 Chủ tài khoản: <b>${topupInfo.accountHolder}</b>\n` +
-    `💰 Số tiền: <b>${amountFormatted}đ</b>\n` +
-    `📝 Nội dung CK: <code>${topupInfo.reference}</code>\n\n` +
-    `⚠️ <i>Vui lòng chuyển khoản đúng nội dung để hệ thống tự động cộng tiền vào tài khoản.</i>`;
+  const caption = strings["topup.caption"]
+    .replace(/\{amount\}/g, amountFormatted)
+    .replace("{bank}", topupInfo.bankName)
+    .replace("{account}", topupInfo.accountNumber)
+    .replace("{holder}", topupInfo.accountHolder)
+    .replace("{ref}", topupInfo.reference);
 
   let sent = false;
   if (topupInfo.qrUrl) {
@@ -1816,7 +1884,7 @@ async function executeTopup(chatId: number | string, customer: typeof customersT
     await sendMessage(chatId, caption);
   }
 
-  await logBotAction("topup_requested", String(chatId), customer.id, `Topup ${amountFormatted}đ`, { amount, reference: topupInfo.reference });
+  await logBotAction("topup_requested", String(chatId), customer.id, `Topup ${amountFormatted}`, { amount, reference: topupInfo.reference });
 }
 
 export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
@@ -1918,15 +1986,15 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           .orderBy(desc(ordersTable.createdAt))
           .limit(1);
         if (!latestOrder) {
-          await sendMessage(chatId, "ℹ️ Bạn không có đơn hàng nào đang chờ thanh toán để hủy.");
+          await sendMessage(chatId, await t("order.no_pending_cancel", lang));
         } else {
-          await cancelOrderByCustomer(chatId, latestOrder.id, customer.id);
+          await cancelOrderByCustomer(chatId, latestOrder.id, customer.id, undefined, lang);
         }
       } else if (awaitingQuantity.has(String(chatId)) && text.trim().length > 0) {
         const entry = peekAwaitingQuantity(chatId);
         if (!entry) {
           clearAwaitingQuantity(chatId);
-          await sendMessage(chatId, "⏰ Phiên đã hết hạn. Vui lòng chọn lại sản phẩm.");
+          await sendMessage(chatId, await t("qty.session_expired_short", lang));
         } else if (entry.awaitingPromoEntry) {
           // Customer typed a promo code while on the confirm screen
           updateAwaitingQuantity(chatId, { awaitingPromoEntry: false });
@@ -1937,7 +2005,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           const stockCount = Number(stockRow?.c ?? 0);
           if (!product) {
             clearAwaitingQuantity(chatId);
-            await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
+            await sendMessage(chatId, await t("prod.not_found", lang));
           } else if (stockCount < qty) {
             clearAwaitingQuantity(chatId);
             await showProductDetail(chatId, entry.productId);
@@ -1949,9 +2017,12 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               await logBotAction("promo_invalid", String(chatId), customer.id, `Invalid promo "${text.trim()}": ${result.error}`, { code: text.trim(), productId: entry.productId, quantity: qty }, "warn");
               // Re-arm promo entry so the customer can try another code
               updateAwaitingQuantity(chatId, { awaitingPromoEntry: true });
-              await sendMessage(chatId, `❌ ${result.error}\n\n<i>Hãy thử mã khác hoặc bấm "Bỏ qua" bên dưới.</i>`, {
+              const [promoInvalidMsg, skipBtn] = await Promise.all([
+                t("promo.invalid_retry", lang), t("btn.skip", lang),
+              ]);
+              await sendMessage(chatId, promoInvalidMsg.replace("{error}", result.error), {
                 reply_markup: {
-                  inline_keyboard: [[{ text: "⏭️ Bỏ qua", callback_data: `clear_promo_${entry.productId}_${qty}` }]],
+                  inline_keyboard: [[{ text: skipBtn, callback_data: `clear_promo_${entry.productId}_${qty}` }]],
                 },
               });
             } else {
@@ -1965,7 +2036,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           // Customer typed a custom quantity
           const pending = takeAwaitingQuantity(chatId);
           if (!pending) {
-            await sendMessage(chatId, "⏰ Phiên nhập số lượng đã hết hạn. Vui lòng chọn lại sản phẩm.");
+            await sendMessage(chatId, await t("qty.session_expired_qty", lang));
           } else {
             const { sql, count } = await import("drizzle-orm");
             const [product] = await db.select({
@@ -1976,20 +2047,24 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             const [stockRow2] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${pending.productId} AND ${productStocksTable.status} = 'available'`);
             const availableStock = Number(stockRow2?.c ?? 0);
             if (!product) {
-              await sendMessage(chatId, "❌ Sản phẩm không còn tồn tại.");
+              await sendMessage(chatId, await t("prod.not_found", lang));
             } else {
               const effectiveMax = Math.min(product.maxQuantity, availableStock);
               const trimmed = text.trim();
               const qty = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : NaN;
               if (!Number.isFinite(qty) || qty < product.minQuantity || qty > effectiveMax) {
                 setAwaitingQuantity(chatId, pending.productId);
-                const overStockMsg = Number.isFinite(qty) && qty > effectiveMax && effectiveMax > 0
-                  ? `❌ Chỉ còn <b>${effectiveMax}</b> sản phẩm trong kho. Vui lòng nhập từ <b>${product.minQuantity}</b> đến <b>${effectiveMax}</b>.`
-                  : `❌ Số lượng không hợp lệ. Vui lòng nhập một số từ <b>${product.minQuantity}</b> đến <b>${effectiveMax}</b>.`;
+                const isOverStock = Number.isFinite(qty) && qty > effectiveMax && effectiveMax > 0;
+                const [invalidMsg, overStockMsg, backBtn] = await Promise.all([
+                  t("qty.invalid_typed", lang), t("qty.over_stock", lang), t("btn.back", lang),
+                ]);
+                const errMsg = isOverStock
+                  ? overStockMsg.replace("{n}", String(effectiveMax)).replace("{min}", String(product.minQuantity))
+                  : invalidMsg.replace("{min}", String(product.minQuantity)).replace("{max}", String(effectiveMax));
                 await sendMessage(
                   chatId,
-                  overStockMsg,
-                  { reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${pending.productId}` }]] } }
+                  errMsg,
+                  { reply_markup: { inline_keyboard: [[{ text: backBtn, callback_data: `prod_${pending.productId}` }]] } }
                 );
               } else {
                 await logBotAction("quantity_input", String(chatId), customer.id, `Custom quantity ${qty} for product ${pending.productId}`, { productId: pending.productId, quantity: qty });
@@ -2077,8 +2152,10 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         }).from(productsTable).where(eq(productsTable.id, productId));
 
         if (!product) {
-          await renderView(chatId, messageId, "❌ Sản phẩm không còn tồn tại.", {
-            reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] },
+          const errMsg = await t("prod.not_found", lang);
+          const homeBtn = await t("btn.home", lang);
+          await renderView(chatId, messageId, errMsg, {
+            reply_markup: { inline_keyboard: [[{ text: homeBtn, callback_data: "main_menu" }]] },
           });
         } else {
           // Deduplication: only allow one stock request per (customerId, productId)
@@ -2096,20 +2173,26 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             ));
           const alreadyRequested = Number(dupRow?.c ?? 0) > 0;
 
+          const stockStrings = await tMany([
+            "stock_req.duplicate", "stock_req.confirmed",
+            "btn.check_again", "btn.view_other", "btn.home",
+          ], lang);
+          const icon = product.productIcon ?? "📦";
+
           if (alreadyRequested) {
             // Customer already requested this product within the rate-limit window;
             // show a friendly reminder without sending another admin notification.
             await renderView(
               chatId,
               messageId,
-              `🔔 <b>Yêu cầu đã được ghi nhận trước đó</b>\n\n` +
-              `Bạn đã gửi yêu cầu cho sản phẩm ${product.productIcon ?? "📦"} <b>${product.name}</b> rồi.\n\n` +
-              `Chúng tôi sẽ thông báo ngay khi có hàng. Hãy quay lại kiểm tra sau nhé! 🙏`,
+              stockStrings["stock_req.duplicate"]
+                .replace("{icon}", icon)
+                .replace("{name}", product.name),
               {
                 reply_markup: {
                   inline_keyboard: [
-                    [{ text: "🔄 Kiểm tra lại", callback_data: `prod_${productId}` }],
-                    [{ text: "🛒 Xem sản phẩm khác", callback_data: "browse_products" }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+                    [{ text: stockStrings["btn.check_again"], callback_data: `prod_${productId}` }],
+                    [{ text: stockStrings["btn.view_other"], callback_data: "browse_products" }, { text: stockStrings["btn.home"], callback_data: "main_menu" }],
                   ],
                 },
               }
@@ -2126,7 +2209,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             await sendAdminNotification(
               `🔔 <b>Yêu cầu hàng mới</b>\n\n` +
               `Khách hàng <b>${customerLabel}</b> muốn mua:\n` +
-              `${product.productIcon ?? "📦"} <b>${product.name}</b>\n\n` +
+              `${icon} <b>${product.name}</b>\n\n` +
               `Vui lòng nhập thêm hàng để đáp ứng nhu cầu.`,
               { productId, customerId: customer.id, chatId: String(chatId) }
             );
@@ -2134,14 +2217,14 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             await renderView(
               chatId,
               messageId,
-              `✅ <b>Đã ghi nhận yêu cầu của bạn!</b>\n\n` +
-              `${product.productIcon ?? "📦"} <b>${product.name}</b> hiện đang hết hàng.\n\n` +
-              `Chúng tôi đã nhận được yêu cầu và sẽ bổ sung sớm nhất có thể. Hãy quay lại kiểm tra sau nhé! 🙏`,
+              stockStrings["stock_req.confirmed"]
+                .replace("{icon}", icon)
+                .replace("{name}", product.name),
               {
                 reply_markup: {
                   inline_keyboard: [
-                    [{ text: "🔄 Kiểm tra lại", callback_data: `prod_${productId}` }],
-                    [{ text: "🛒 Xem sản phẩm khác", callback_data: "browse_products" }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+                    [{ text: stockStrings["btn.check_again"], callback_data: `prod_${productId}` }],
+                    [{ text: stockStrings["btn.view_other"], callback_data: "browse_products" }, { text: stockStrings["btn.home"], callback_data: "main_menu" }],
                   ],
                 },
               }
@@ -2156,9 +2239,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           minQuantity: productsTable.minQuantity,
           maxQuantity: productsTable.maxQuantity,
         }).from(productsTable).where(eq(productsTable.id, productId));
+        const qtyStrings = await tMany([
+          "prod.not_found", "btn.home", "prod.out_of_stock_req", "prod.stock_request",
+          "btn.back", "qty.prompt", "qty.stock_hint",
+        ], lang);
         if (!product) {
-          await renderView(chatId, messageId, "❌ Sản phẩm không còn tồn tại.", {
-            reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] },
+          await renderView(chatId, messageId, qtyStrings["prod.not_found"], {
+            reply_markup: { inline_keyboard: [[{ text: qtyStrings["btn.home"], callback_data: "main_menu" }]] },
           });
         } else {
           // Gate only on having any stock at all — the user may type up to the
@@ -2167,11 +2254,11 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
           const stockCount = Number(stockRow?.c ?? 0);
           if (stockCount < product.minQuantity) {
-            await renderView(chatId, messageId, `❌ <b>${product.name}</b> hiện đã hết hàng.\n\nBạn có thể yêu cầu shop nhập thêm hàng.`, {
+            await renderView(chatId, messageId, qtyStrings["prod.out_of_stock_req"].replace("{name}", product.name), {
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: "🔔 Yêu cầu hàng mới", callback_data: `stock_request_${productId}` }],
-                  [{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }],
+                  [{ text: qtyStrings["prod.stock_request"], callback_data: `stock_request_${productId}` }],
+                  [{ text: qtyStrings["btn.back"], callback_data: `prod_${productId}` }, { text: qtyStrings["btn.home"], callback_data: "main_menu" }],
                 ],
               },
             });
@@ -2179,14 +2266,18 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             await clearAwaitingPromo(chatId);
             setAwaitingQuantity(chatId, productId);
             await logBotAction("quantity_prompt", String(chatId), customer.id, `Quantity prompt for product ${productId}`, { productId, minQuantity: product.minQuantity, maxQuantity: product.maxQuantity, stockCount });
-            const stockHint = stockCount < product.maxQuantity ? `\n<i>Hiện còn ${stockCount} trong kho.</i>` : "";
+            const stockHint = stockCount < product.maxQuantity
+              ? qtyStrings["qty.stock_hint"].replace("{n}", String(stockCount))
+              : "";
+            const promptMsg = qtyStrings["qty.prompt"]
+              .replace("{name}", product.name)
+              .replace("{min}", String(product.minQuantity))
+              .replace("{max}", String(product.maxQuantity)) + stockHint;
             await renderView(
               chatId,
               messageId,
-              `✏️ <b>Nhập số lượng muốn mua cho ${product.name}</b>\n` +
-              `<i>Gõ một số từ ${product.minQuantity} đến ${product.maxQuantity} vào ô chat.</i>` +
-              stockHint,
-              { reply_markup: { inline_keyboard: [[{ text: "⬅️ Quay lại", callback_data: `prod_${productId}` }, { text: "🏠 Trang chủ", callback_data: "main_menu" }]] } }
+              promptMsg,
+              { reply_markup: { inline_keyboard: [[{ text: qtyStrings["btn.back"], callback_data: `prod_${productId}` }, { text: qtyStrings["btn.home"], callback_data: "main_menu" }]] } }
             );
           }
         }
@@ -2201,7 +2292,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         const quantity = parseInt(parts[1], 10);
         await clearAwaitingPromo(chatId);
         await logBotAction("promo_skipped", String(chatId), customer.id, `Skipped promo for product ${productId} x${quantity}`, { productId, quantity });
-        await createOrderFromBot(chatId, customer.id, productId, quantity, null);
+        await createOrderFromBot(chatId, customer.id, productId, quantity, null, lang);
       } else if (data.startsWith("reuse_promo_")) {
         // One-tap reuse of the customer's most recently applied promo code.
         // We re-validate against the current subtotal — the code may have
@@ -2217,15 +2308,17 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         const [stockRow] = await db.select({ c: count() }).from(productStocksTable).where(sql`${productStocksTable.productId} = ${productId} AND ${productStocksTable.status} = 'available'`);
         const stockCount = Number(stockRow?.c ?? 0);
         if (!product || stockCount < quantity) {
-          await sendMessage(chatId, "❌ Sản phẩm không còn đủ hàng. Vui lòng chọn lại.");
+          await sendMessage(chatId, await t("promo.reuse_oos", lang));
         } else {
           const [promo] = await db.select({ code: promotionsTable.code }).from(promotionsTable).where(eq(promotionsTable.id, promotionId));
           const code = promo?.code ?? "";
           const subtotal = parseFloat(product.price) * quantity;
-          const result = code ? await validatePromoCode(code, subtotal, quantity) : { error: "Mã giảm giá không tồn tại." };
+          const noPromoMsg = await t("promo.not_found", lang);
+          const result = code ? await validatePromoCode(code, subtotal, quantity) : { error: noPromoMsg };
           if ("error" in result) {
             await logBotAction("promo_reuse_invalid", String(chatId), customer.id, `Reuse failed for promo ${promotionId}: ${result.error}`, { promotionId, productId, quantity, error: result.error }, "warn");
-            await sendMessage(chatId, `❌ Mã <code>${code || "?"}</code> không còn dùng được: ${result.error}`);
+            const reuseInvalidMsg = await t("promo.reuse_invalid", lang);
+            await sendMessage(chatId, reuseInvalidMsg.replace("{code}", code || "?").replace("{error}", result.error));
             await showOrderConfirmScreen(chatId, customer.id, productId, quantity, null, messageId);
           } else {
             await logBotAction("promo_reused", String(chatId), customer.id, `Reused promo ${result.code} (-${result.discountAmount})`, { code: result.code, promotionId: result.id, discountAmount: result.discountAmount, productId, quantity });
@@ -2233,15 +2326,18 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           }
         }
       } else if (data.startsWith("promo_enter_")) {
-        // Customer tapped "Nhập mã giảm giá" on the confirm screen.
+        // Customer tapped "Enter promo code" on the confirm screen.
         // Save the confirm screen's messageId so we can edit it in-place
         // when the customer types a valid code (instead of sending a 3rd message).
         const parts = data.replace("promo_enter_", "").split("_");
         const productId = parseInt(parts[0], 10);
         const quantity = parseInt(parts[1], 10);
         updateAwaitingQuantity(chatId, { awaitingPromoEntry: true, confirmMessageId: messageId });
-        await sendMessage(chatId, `🎟️ <b>Nhập mã giảm giá của bạn</b>\n<i>Gõ mã vào ô chat bên dưới. Nhấn "Bỏ qua" nếu không có mã.</i>`, {
-          reply_markup: { inline_keyboard: [[{ text: "⏭️ Bỏ qua", callback_data: `clear_promo_${productId}_${quantity}` }]] },
+        const [promoPromptMsg, skipBtn] = await Promise.all([
+          t("promo.entry_prompt", lang), t("btn.skip", lang),
+        ]);
+        await sendMessage(chatId, promoPromptMsg, {
+          reply_markup: { inline_keyboard: [[{ text: skipBtn, callback_data: `clear_promo_${productId}_${quantity}` }]] },
         });
       } else if (data.startsWith("clear_promo_")) {
         // Customer tapped "Bỏ mã" or "Bỏ qua" — show confirm screen without promo
@@ -2272,7 +2368,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             }
           }
         }
-        await createOrderFromBot(chatId, customer.id, productId, quantity, promotion);
+        await createOrderFromBot(chatId, customer.id, productId, quantity, promotion, lang);
       } else if (data.startsWith("pay_with_balance_")) {
         const orderId = parseInt(data.replace("pay_with_balance_", ""), 10);
         // Use the combined atomic function: stock claim + balance debit + delivery
@@ -2288,9 +2384,18 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           );
 
           // Build and send the delivery message
+          const walletDeliveryStrings = await tMany([
+            "delivery.success", "delivery.product_line", "delivery.subtotal_line",
+            "delivery.promo_line", "delivery.discount_line", "delivery.paid_wallet",
+            "delivery.product_info", "delivery.thank_you",
+          ], lang);
+          const walletAmountSuffix = lang === "en" ? "₫" : "đ";
+
           const orderDiscount = parseFloat(order.discountAmount ?? "0");
-          let deliveryMsg = `🎉 <b>Đơn hàng ${order.orderCode} đã giao thành công!</b>\n\n`;
-          deliveryMsg += `📦 ${item.productName} x${item.quantity}\n`;
+          let deliveryMsg = walletDeliveryStrings["delivery.success"].replace("{code}", order.orderCode) + "\n\n";
+          deliveryMsg += walletDeliveryStrings["delivery.product_line"]
+            .replace("{name}", item.productName)
+            .replace("{qty}", String(item.quantity)) + "\n";
 
           if (orderDiscount > 0) {
             let promoCode: string | null = null;
@@ -2300,18 +2405,22 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               promoCode = promo?.code ?? null;
             }
             const subtotal = parseFloat(order.totalAmount) + orderDiscount;
-            deliveryMsg += `🧾 Tạm tính: <s>${subtotal.toLocaleString("vi-VN")}đ</s>\n`;
-            deliveryMsg += promoCode
-              ? `🎟️ Mã giảm giá: <code>${promoCode}</code> (−${orderDiscount.toLocaleString("vi-VN")}đ)\n`
-              : `🎟️ Giảm giá: −${orderDiscount.toLocaleString("vi-VN")}đ\n`;
-            deliveryMsg += `💰 Đã thanh toán: <b>${parseFloat(order.totalAmount).toLocaleString("vi-VN")}đ</b> (ví)\n`;
+            deliveryMsg += walletDeliveryStrings["delivery.subtotal_line"].replace("{amount}", subtotal.toLocaleString("vi-VN")) + "\n";
+            deliveryMsg += (promoCode
+              ? walletDeliveryStrings["delivery.promo_line"]
+                  .replace("{code}", promoCode)
+                  .replace("{amount}", orderDiscount.toLocaleString("vi-VN"))
+              : walletDeliveryStrings["delivery.discount_line"].replace("{amount}", orderDiscount.toLocaleString("vi-VN"))) + "\n";
+            deliveryMsg += walletDeliveryStrings["delivery.paid_wallet"]
+              .replace("{amount}", parseFloat(order.totalAmount).toLocaleString("vi-VN")) + "\n";
           } else {
-            deliveryMsg += `💰 Đã thanh toán: <b>${parseFloat(order.totalAmount).toLocaleString("vi-VN")}đ</b> (ví)\n`;
+            deliveryMsg += walletDeliveryStrings["delivery.paid_wallet"]
+              .replace("{amount}", parseFloat(order.totalAmount).toLocaleString("vi-VN")) + "\n";
           }
 
-          deliveryMsg += `\n<b>Thông tin sản phẩm:</b>\n`;
+          deliveryMsg += `\n${walletDeliveryStrings["delivery.product_info"]}\n`;
           stocks.forEach((s, i) => { deliveryMsg += `${i + 1}. <code>${s.content}</code>\n`; });
-          deliveryMsg += `\n✅ Cảm ơn bạn đã mua hàng!`;
+          deliveryMsg += `\n${walletDeliveryStrings["delivery.thank_you"]}`;
 
           await sendMessage(chatId, deliveryMsg);
 
@@ -2331,35 +2440,38 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             .where(and(eq(productStocksTable.orderId, orderId), eq(productStocksTable.status, "reserved")));
           await logBotAction("wallet_payment_cancelled_no_stock", String(chatId), customer.id,
             `Wallet payment cancelled — out of stock for order ${orderId}`, { orderId }, "warn");
-          await sendMessage(chatId, "❌ Sản phẩm đã hết hàng. Đơn hàng đã bị hủy và bạn không bị tính phí.", {
+          const [walletOosMsg, walletHomeBtn, walletBrowseBtn] = await Promise.all([
+            t("wallet.out_of_stock", lang), t("btn.home", lang), t("btn.view_other", lang),
+          ]);
+          await sendMessage(chatId, walletOosMsg, {
             reply_markup: {
               inline_keyboard: [
-                [{ text: "🏠 Trang chủ", callback_data: "main_menu" }, { text: "🛒 Xem sản phẩm khác", callback_data: "browse_products" }],
+                [{ text: walletHomeBtn, callback_data: "main_menu" }, { text: walletBrowseBtn, callback_data: "browse_products" }],
               ],
             },
           });
         } else if (walletResult.outcome === "insufficient_balance") {
-          await sendMessage(chatId, "❌ Số dư ví không đủ. Vui lòng nạp thêm hoặc chuyển khoản ngân hàng.");
+          await sendMessage(chatId, await t("wallet.insufficient", lang));
         } else {
-          await sendMessage(chatId, "❌ Đơn hàng không còn hợp lệ để thanh toán bằng ví.");
+          await sendMessage(chatId, await t("wallet.order_invalid", lang));
         }
       } else if (data.startsWith("cancel_order_")) {
         const orderId = parseInt(data.replace("cancel_order_", ""), 10);
-        if (!isNaN(orderId)) await cancelOrderByCustomer(chatId, orderId, customer.id, messageId);
+        if (!isNaN(orderId)) await cancelOrderByCustomer(chatId, orderId, customer.id, messageId, lang);
       } else if (data.startsWith("show_bank_transfer_")) {
         const orderId = parseInt(data.replace("show_bank_transfer_", ""), 10);
-        await sendBankTransferForOrder(chatId, orderId, customer.id);
+        await sendBankTransferForOrder(chatId, orderId, customer.id, lang);
       } else if (data.startsWith("topup_amount_")) {
         const amount = parseInt(data.replace("topup_amount_", ""), 10);
         if (isNaN(amount) || amount <= 0) {
-          await sendMessage(chatId, "❌ Số tiền không hợp lệ.");
+          await sendMessage(chatId, await t("topup.invalid_amount", lang));
         } else {
           await executeTopup(chatId, customer, amount);
         }
       } else if (data === "wallet_history") {
         await showWalletHistory(chatId, customer, messageId);
       } else if (data === "my_orders") {
-        await showMyOrders(chatId, customer.id, messageId);
+        await showMyOrders(chatId, customer.id, messageId, lang);
       }
     }
   } catch (err) {

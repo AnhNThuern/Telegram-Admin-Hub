@@ -231,6 +231,88 @@ export const DEFAULT_STRINGS: Array<{ key: string; vi: string; en: string }> = [
   // ── Errors / generic ──
   { key: "error.generic", vi: "❌ Đã xảy ra lỗi. Vui lòng thử lại sau.", en: "❌ An error occurred. Please try again later." },
   { key: "error.payment_not_configured", vi: "❌ Cửa hàng chưa cấu hình thanh toán.", en: "❌ Payment is not configured for this shop." },
+
+  // ── Buttons (additional) ──
+  { key: "btn.continue_shopping", vi: "🛍️ Tiếp tục mua hàng", en: "🛍️ Continue Shopping" },
+  { key: "btn.cancel_order", vi: "❌ Hủy đơn hàng", en: "❌ Cancel Order" },
+  { key: "btn.enter_promo", vi: "🎟️ Nhập mã giảm giá", en: "🎟️ Enter Promo Code" },
+  { key: "btn.place_order", vi: "✅ Đặt hàng", en: "✅ Place Order" },
+  { key: "btn.clear_promo", vi: "❌ Bỏ mã: {code}", en: "❌ Remove Code: {code}" },
+
+  // ── Order / checkout (additional) ──
+  { key: "order.invalid_qty", vi: "❌ Số lượng không hợp lệ. Mua từ {min} đến {max}.", en: "❌ Invalid quantity. Orders must be from {min} to {max}." },
+  { key: "order.not_found", vi: "❌ Không tìm thấy đơn hàng.", en: "❌ Order not found." },
+  { key: "order.bank_invalid", vi: "❌ Đơn hàng không còn hợp lệ để thanh toán.", en: "❌ Order is no longer valid for payment." },
+  { key: "order.bank_config_error", vi: "❌ Không thể tạo thông tin thanh toán. Vui lòng liên hệ admin.", en: "❌ Cannot generate payment details. Please contact admin." },
+  { key: "order.contact_admin", vi: "✅ Đơn hàng <b>{code}</b> đã tạo! Vui lòng liên hệ admin để thanh toán.", en: "✅ Order <b>{code}</b> created! Please contact admin to complete payment." },
+  { key: "order.cancel_success", vi: "✅ Đơn hàng <b>#{code}</b> đã được hủy thành công.\n\nTồn kho đã được hoàn trả. Bạn có thể đặt hàng lại bất cứ lúc nào.", en: "✅ Order <b>#{code}</b> successfully cancelled.\n\nStock has been restored. You can place a new order anytime." },
+  { key: "order.cancel_cannot", vi: "❌ Đơn hàng <b>#{code}</b> không thể hủy vì {status}.", en: "❌ Order <b>#{code}</b> cannot be cancelled: {status}." },
+  { key: "order.no_pending_cancel", vi: "ℹ️ Bạn không có đơn hàng nào đang chờ thanh toán để hủy.", en: "ℹ️ You have no pending orders to cancel." },
+  { key: "order.product_line", vi: "📦 Sản phẩm: {product} x{qty}", en: "📦 Product: {product} x{qty}" },
+  { key: "order.total_line", vi: "💰 Tổng tiền: <b>{amount}đ</b>", en: "💰 Total: <b>{amount}₫</b>" },
+  { key: "order.wallet_balance_line", vi: "👛 Số dư ví: <b>{balance}đ</b>", en: "👛 Wallet Balance: <b>{balance}₫</b>" },
+  { key: "order.payment_choice", vi: "Bạn muốn thanh toán bằng cách nào?", en: "How would you like to pay?" },
+  { key: "order.subtotal_line", vi: "🧾 Tạm tính: <s>{amount}đ</s>", en: "🧾 Subtotal: <s>{amount}₫</s>" },
+  { key: "order.promo_line", vi: "🎟️ Mã giảm giá: <code>{code}</code> (−{amount}đ)", en: "🎟️ Promo Code: <code>{code}</code> (−{amount}₫)" },
+  { key: "order.bank_transfer_title", vi: "🏦 <b>Thanh toán chuyển khoản cho đơn {code}</b>", en: "🏦 <b>Bank Transfer for Order {code}</b>" },
+  { key: "order.bank_scan_hint", vi: "📱 <i>Quét mã QR bên trên hoặc chuyển khoản theo thông tin trên.</i>", en: "📱 <i>Scan the QR code above or transfer using the details above.</i>" },
+  { key: "order.low_balance_hint", vi: "💡 <i>Số dư ví {balance}đ chưa đủ để thanh toán. Nạp thêm bằng /naptien để thanh toán nhanh hơn.</i>", en: "💡 <i>Wallet balance {balance}₫ is not enough. Top up via /naptien for faster checkout.</i>" },
+  { key: "order.status.paid_label", vi: "đã thanh toán", en: "already paid" },
+  { key: "order.status.delivered_label", vi: "đã giao", en: "already delivered" },
+  { key: "order.status.cancelled_label", vi: "đã bị hủy trước đó", en: "already cancelled" },
+  { key: "order.status.failed_label", vi: "đã thất bại", en: "failed" },
+
+  // ── Products (additional) ──
+  { key: "prod.out_of_stock_req", vi: "❌ <b>{name}</b> hiện đã hết hàng.\n\nBạn có thể yêu cầu shop nhập thêm hàng.", en: "❌ <b>{name}</b> is currently out of stock.\n\nYou can request the shop to restock." },
+  { key: "prod.not_enough_qty", vi: "❌ Không đủ hàng. Chỉ còn <b>{n}</b> sản phẩm. Vui lòng chọn số lượng phù hợp.", en: "❌ Not enough stock. Only <b>{n}</b> available. Please choose a smaller quantity." },
+  { key: "prod.out_of_stock_race", vi: "❌ <b>{name}</b> đã hết hàng vào lúc xác nhận đơn. Vui lòng thử lại.", en: "❌ <b>{name}</b> sold out just before your order was confirmed. Please try again." },
+  { key: "prod.not_enough_reuse", vi: "❌ Sản phẩm không còn đủ hàng. Vui lòng chọn lại.", en: "❌ Product no longer has enough stock. Please try again." },
+
+  // ── Stock requests ──
+  { key: "stock_req.duplicate", vi: "🔔 <b>Yêu cầu đã được ghi nhận trước đó</b>\n\nBạn đã gửi yêu cầu cho sản phẩm {icon} <b>{name}</b> rồi.\n\nChúng tôi sẽ thông báo ngay khi có hàng. Hãy quay lại kiểm tra sau nhé! 🙏", en: "🔔 <b>Request already registered</b>\n\nYou already submitted a request for {icon} <b>{name}</b>.\n\nWe'll notify you as soon as it's back in stock. Check back later! 🙏" },
+  { key: "stock_req.confirmed", vi: "✅ <b>Đã ghi nhận yêu cầu của bạn!</b>\n\n{icon} <b>{name}</b> hiện đang hết hàng.\n\nChúng tôi đã nhận được yêu cầu và sẽ bổ sung sớm nhất có thể. Hãy quay lại kiểm tra sau nhé! 🙏", en: "✅ <b>Request received!</b>\n\n{icon} <b>{name}</b> is currently out of stock.\n\nWe've noted your request and will restock as soon as possible. Check back later! 🙏" },
+
+  // ── Quantity (additional) ──
+  { key: "qty.stock_hint", vi: "\nHiện còn {n} trong kho.", en: "\n{n} currently in stock." },
+  { key: "qty.invalid_typed", vi: "❌ Số lượng không hợp lệ. Vui lòng nhập một số từ <b>{min}</b> đến <b>{max}</b>.", en: "❌ Invalid quantity. Please enter a number from <b>{min}</b> to <b>{max}</b>." },
+  { key: "qty.over_stock", vi: "❌ Chỉ còn <b>{n}</b> sản phẩm trong kho. Vui lòng nhập từ <b>{min}</b> đến <b>{n}</b>.", en: "❌ Only <b>{n}</b> in stock. Please enter a number from <b>{min}</b> to <b>{n}</b>." },
+
+  // ── Wallet (additional) ──
+  { key: "wallet.out_of_stock", vi: "❌ Sản phẩm đã hết hàng. Đơn hàng đã bị hủy và bạn không bị tính phí.", en: "❌ Product is out of stock. The order has been cancelled and you have not been charged." },
+  { key: "wallet.insufficient", vi: "❌ Số dư ví không đủ. Vui lòng nạp thêm hoặc chuyển khoản ngân hàng.", en: "❌ Insufficient wallet balance. Please top up or pay by bank transfer." },
+  { key: "wallet.order_invalid", vi: "❌ Đơn hàng không còn hợp lệ để thanh toán bằng ví.", en: "❌ Order is no longer valid for wallet payment." },
+  { key: "wallet.recent_n", vi: "{n} giao dịch gần nhất:", en: "{n} recent transactions:" },
+  { key: "wallet.balance_after_line", vi: "   👛 Số dư sau: <b>{amount}đ</b>", en: "   👛 Balance after: <b>{amount}₫</b>" },
+
+  // ── Top-up (additional) ──
+  { key: "topup.choose_balance_msg", vi: "💳 <b>Nạp tiền vào tài khoản</b>\n\n👛 Số dư hiện tại: <b>{balance}đ</b>\n\nChọn số tiền muốn nạp bên dưới hoặc gõ <code>/naptien [số tiền]</code> để nhập số tiền tuỳ chọn.\nVí dụ: <code>/naptien 100000</code>", en: "💳 <b>Top Up Account</b>\n\n👛 Current Balance: <b>{balance}₫</b>\n\nChoose an amount below or type <code>/naptien [amount]</code> for a custom amount.\nExample: <code>/naptien 100000</code>" },
+  { key: "topup.invalid_example", vi: "❌ Số tiền không hợp lệ. Vui lòng nhập số tiền dương.\nVí dụ: <code>/naptien 100000</code>", en: "❌ Invalid amount. Please enter a positive number.\nExample: <code>/naptien 100000</code>" },
+  { key: "topup.no_config", vi: "❌ Không thể tạo yêu cầu nạp tiền. Vui lòng liên hệ admin.", en: "❌ Cannot create top-up request. Please contact admin." },
+  { key: "topup.caption", vi: "💳 <b>Nạp tiền {amount}đ</b>\n\n🏦 Ngân hàng: <b>{bank}</b>\n💳 Số tài khoản: <code>{account}</code>\n👤 Chủ tài khoản: <b>{holder}</b>\n💰 Số tiền: <b>{amount}đ</b>\n📝 Nội dung CK: <code>{ref}</code>\n\n⚠️ <i>Vui lòng chuyển khoản đúng nội dung để hệ thống tự động cộng tiền vào tài khoản.</i>", en: "💳 <b>Top Up {amount}₫</b>\n\n🏦 Bank: <b>{bank}</b>\n💳 Account Number: <code>{account}</code>\n👤 Account Holder: <b>{holder}</b>\n💰 Amount: <b>{amount}₫</b>\n📝 Transfer Note: <code>{ref}</code>\n\n⚠️ <i>Please use the exact transfer note for automatic balance credit.</i>" },
+
+  // ── Orders list (additional) ──
+  { key: "orders.recent_title", vi: "📦 <b>Đơn hàng gần đây:</b>", en: "📦 <b>Recent Orders:</b>" },
+  { key: "orders.status.failed_label", vi: "❌ Lỗi", en: "❌ Failed" },
+  { key: "orders.status.needs_manual_label", vi: "⚠️ Cần xử lý", en: "⚠️ Needs review" },
+  { key: "orders.amount_suffix", vi: "đ", en: "₫" },
+
+  // ── Delivery (additional) ──
+  { key: "delivery.product_line", vi: "📦 {name} x{qty}", en: "📦 {name} x{qty}" },
+  { key: "delivery.subtotal_line", vi: "🧾 Tạm tính: <s>{amount}đ</s>", en: "🧾 Subtotal: <s>{amount}₫</s>" },
+  { key: "delivery.promo_line", vi: "🎟️ Mã giảm giá: <code>{code}</code> (−{amount}đ)", en: "🎟️ Promo Code: <code>{code}</code> (−{amount}₫)" },
+  { key: "delivery.discount_line", vi: "🎟️ Giảm giá: −{amount}đ", en: "🎟️ Discount: −{amount}₫" },
+  { key: "delivery.paid_wallet", vi: "💰 Đã thanh toán: <b>{amount}đ</b> (ví)", en: "💰 Paid: <b>{amount}₫</b> (wallet)" },
+
+  // ── Promo code entry ──
+  { key: "promo.entry_prompt", vi: "🎟️ <b>Nhập mã giảm giá của bạn</b>\n<i>Gõ mã vào ô chat bên dưới. Nhấn \"Bỏ qua\" nếu không có mã.</i>", en: "🎟️ <b>Enter your promo code</b>\n<i>Type your code below. Press \"Skip\" if you don't have one.</i>" },
+  { key: "promo.invalid_retry", vi: "❌ {error}\n\n<i>Hãy thử mã khác hoặc bấm \"Bỏ qua\" bên dưới.</i>", en: "❌ {error}\n\n<i>Try another code or press \"Skip\" below.</i>" },
+  { key: "promo.reuse_invalid", vi: "❌ Mã <code>{code}</code> không còn dùng được: {error}", en: "❌ Code <code>{code}</code> is no longer valid: {error}" },
+  { key: "promo.reuse_oos", vi: "❌ Sản phẩm không còn đủ hàng. Vui lòng chọn lại.", en: "❌ Product no longer has enough stock. Please try again." },
+  { key: "promo.not_found", vi: "Mã giảm giá không tồn tại.", en: "Promo code not found." },
+
+  // ── Session / misc ──
+  { key: "qty.session_expired_short", vi: "⏰ Phiên đã hết hạn. Vui lòng chọn lại sản phẩm.", en: "⏰ Session expired. Please select the product again." },
+  { key: "qty.session_expired_qty", vi: "⏰ Phiên nhập số lượng đã hết hạn. Vui lòng chọn lại sản phẩm.", en: "⏰ Quantity entry session expired. Please select the product again." },
 ];
 
 /**
