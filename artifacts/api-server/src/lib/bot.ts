@@ -799,14 +799,30 @@ async function showCategories(chatId: number | string, editMessageId?: number, l
 }
 
 async function showProducts(chatId: number | string, categoryId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  const { sql } = await import("drizzle-orm");
-  const products = await db.select({
-    id: productsTable.id,
-    name: productsTable.name,
-    price: productsTable.price,
-    productIcon: productsTable.productIcon,
-    stockCount: sql<number>`(SELECT COUNT(*) FROM product_stocks WHERE product_id = ${productsTable.id} AND status = 'available')::int`,
-  }).from(productsTable).where(and(eq(productsTable.categoryId, categoryId), eq(productsTable.isActive, true)));
+  // Two separate queries — avoids Drizzle ORM v0.45.1 bug where sql`` templates
+  // inside named db.select() fields mangle column references.
+  const [rawProducts, stockRows] = await Promise.all([
+    db.select({
+      id: productsTable.id,
+      name: productsTable.name,
+      price: productsTable.price,
+      productIcon: productsTable.productIcon,
+    }).from(productsTable).where(and(eq(productsTable.categoryId, categoryId), eq(productsTable.isActive, true))),
+    db.select({
+      productId: productStocksTable.productId,
+      cnt: count(),
+    })
+      .from(productStocksTable)
+      .innerJoin(productsTable, eq(productStocksTable.productId, productsTable.id))
+      .where(and(
+        eq(productsTable.categoryId, categoryId),
+        eq(productsTable.isActive, true),
+        eq(productStocksTable.status, "available"),
+      ))
+      .groupBy(productStocksTable.productId),
+  ]);
+  const stockMap = new Map(stockRows.map(r => [r.productId, Number(r.cnt)]));
+  const products = rawProducts.map(p => ({ ...p, stockCount: stockMap.get(p.id) ?? 0 }));
 
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
     t("prod.none", lang),
@@ -831,17 +847,24 @@ async function showProducts(chatId: number | string, categoryId: number, editMes
 }
 
 async function showProductDetail(chatId: number | string, productId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  const { sql } = await import("drizzle-orm");
-  const [product] = await db.select({
-    id: productsTable.id,
-    name: productsTable.name,
-    description: productsTable.description,
-    price: productsTable.price,
-    originalPrice: productsTable.originalPrice,
-    minQuantity: productsTable.minQuantity,
-    maxQuantity: productsTable.maxQuantity,
-    stockCount: sql<number>`(SELECT COUNT(*) FROM product_stocks WHERE product_id = ${productsTable.id} AND status = 'available')::int`,
-  }).from(productsTable).where(eq(productsTable.id, productId));
+  // Two separate queries — avoids Drizzle ORM v0.45.1 bug where sql`` templates
+  // inside named db.select() fields mangle column references.
+  const [[product], [stockRow]] = await Promise.all([
+    db.select({
+      id: productsTable.id,
+      name: productsTable.name,
+      description: productsTable.description,
+      price: productsTable.price,
+      originalPrice: productsTable.originalPrice,
+      minQuantity: productsTable.minQuantity,
+      maxQuantity: productsTable.maxQuantity,
+      categoryId: productsTable.categoryId,
+    }).from(productsTable).where(eq(productsTable.id, productId)),
+    db.select({ cnt: count() })
+      .from(productStocksTable)
+      .where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available"))),
+  ]);
+  const productWithStock = product ? { ...product, stockCount: Number(stockRow?.cnt ?? 0) } : undefined;
 
   const strings = await tMany([
     "prod.not_found", "btn.home", "prod.in_stock", "prod.out_of_stock",
@@ -850,39 +873,36 @@ async function showProductDetail(chatId: number | string, productId: number, edi
   ], lang);
   const locale = lang === "en" ? "en-US" : "vi-VN";
 
-  if (!product) {
+  if (!productWithStock) {
     await renderView(chatId, editMessageId, strings["prod.not_found"], {
       reply_markup: { inline_keyboard: [[{ text: strings["btn.home"], callback_data: "main_menu" }]] },
     });
     return;
   }
 
-  // Find the category so the "back" button can return to the product list of the same category.
-  const [productCategory] = await db.select({ categoryId: productsTable.categoryId })
-    .from(productsTable).where(eq(productsTable.id, productId));
-  const categoryId = productCategory?.categoryId;
+  const categoryId = productWithStock.categoryId ?? undefined;
 
-  const priceFormatted = parseFloat(product.price).toLocaleString(locale);
-  const originalFormatted = product.originalPrice ? `<s>${parseFloat(product.originalPrice).toLocaleString(locale)}đ</s> ` : "";
-  const outOfStock = product.stockCount === 0;
+  const priceFormatted = parseFloat(productWithStock.price).toLocaleString(locale);
+  const originalFormatted = productWithStock.originalPrice ? `<s>${parseFloat(productWithStock.originalPrice).toLocaleString(locale)}đ</s> ` : "";
+  const outOfStock = productWithStock.stockCount === 0;
   const stockText = outOfStock
     ? strings["prod.out_of_stock"]
-    : `${strings["prod.in_stock"]} (${product.stockCount})`;
+    : `${strings["prod.in_stock"]} (${productWithStock.stockCount})`;
 
   // Effective max is capped by actual available stock so customers never see
   // a quantity button that will be rejected at order time.
-  const minQ = product.minQuantity;
-  const maxQ = outOfStock ? 0 : Math.min(product.maxQuantity, product.stockCount);
+  const minQ = productWithStock.minQuantity;
+  const maxQ = outOfStock ? 0 : Math.min(productWithStock.maxQuantity, productWithStock.stockCount);
   const qtyDisplay = outOfStock ? "0" : `${minQ} - ${maxQ}`;
 
-  let msg = `📦 <b>${product.name}</b>\n`;
-  if (product.description) msg += `\n${product.description}\n`;
+  let msg = `📦 <b>${productWithStock.name}</b>\n`;
+  if (productWithStock.description) msg += `\n${productWithStock.description}\n`;
   msg += `\n${strings["prod.price"]} ${originalFormatted}<b>${priceFormatted}đ</b>`;
   msg += `\n${strings["prod.stock"]} ${stockText}`;
   msg += `\n${strings["prod.qty_range"]} ${qtyDisplay}`;
 
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
-  if (!outOfStock && product.stockCount >= minQ) {
+  if (!outOfStock && productWithStock.stockCount >= minQ) {
     // Show purchase actions whenever there's at least enough stock for the
     // minimum quantity.
     const row: Array<{ text: string; callback_data: string }> = [];
