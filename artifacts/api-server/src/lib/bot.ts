@@ -1,5 +1,5 @@
 import { db, botLogsTable, customersTable, ordersTable, orderItemsTable, productStocksTable, transactionsTable, productsTable, promotionsTable, botPendingActionsTable } from "@workspace/db";
-import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count, sum, isNotNull } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, lt, gte, count, sum, isNotNull, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { t, tMany, type Lang } from "./i18n";
 import { getOrCreateSystemSettings } from "./systemSettings";
@@ -538,7 +538,7 @@ export async function broadcastProductNotification(
       .where(
         and(
           eq(botLogsTable.action, "stock_request"),
-          sqlOp`(${botLogsTable.metadata}->>'productId')::int = ${productId}`,
+          sql`(${botLogsTable.metadata}->>'productId')::int = ${productId}`,
           eq(customersTable.isActive, true),
         )
       );
@@ -1330,7 +1330,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       // for this order. Any row locked by another concurrent transaction is
       // skipped (SKIP LOCKED), so if we can't reserve enough, stock is gone.
       const reserved = await tx.execute(
-        sqlOp`UPDATE product_stocks
+        sql`UPDATE product_stocks
               SET status = 'reserved', order_id = ${newOrder.id}
               WHERE id IN (
                 SELECT id FROM product_stocks
@@ -1348,14 +1348,14 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       // The WHERE guard (use_count < usage_limit) prevents exceeding the limit even
       // when multiple orders race to apply the same code at its last allowed use.
       if (promotion) {
-        const promoUpdate = await tx.execute(
-          sqlOp`UPDATE promotions
-                SET use_count = use_count + 1
-                WHERE id = ${promotion.id}
-                  AND (usage_limit IS NULL OR use_count < usage_limit)
-                RETURNING id`
-        );
-        if ((promoUpdate.rows as Array<{ id: number }>).length === 0) {
+        const promoUpdate = await tx.update(promotionsTable)
+          .set({ useCount: sql`${promotionsTable.useCount} + 1` })
+          .where(and(
+            eq(promotionsTable.id, promotion.id),
+            or(isNull(promotionsTable.usageLimit), lt(promotionsTable.useCount, promotionsTable.usageLimit)),
+          ))
+          .returning({ id: promotionsTable.id });
+        if (promoUpdate.length === 0) {
           throw new Error(PROMO_LIMIT_EXCEEDED);
         }
       }
@@ -1385,7 +1385,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
     throw err;
   }
   await db.update(customersTable)
-    .set({ totalOrders: sqlOp`total_orders + 1` })
+    .set({ totalOrders: sql`${customersTable.totalOrders} + 1` })
     .where(eq(customersTable.id, customerId));
 
   await logBotAction("create_order", String(chatId), customerId, `Order ${orderCode} created (stock reserved)`, { orderId: order.id, productId, quantity, promotionId: promotion?.id, discountAmount });
@@ -1536,9 +1536,9 @@ async function cancelOrderByCustomer(chatId: number | string, orderId: number, c
   }
 
   // Release reserved stock back to available
-  await db.execute(
-    sqlOp`UPDATE product_stocks SET status = 'available', order_id = NULL WHERE order_id = ${orderId} AND status = 'reserved'`
-  );
+  await db.update(productStocksTable)
+    .set({ status: "available", orderId: null })
+    .where(and(eq(productStocksTable.orderId, orderId), eq(productStocksTable.status, "reserved")));
 
   // Mark order cancelled
   await db.update(ordersTable).set({ status: "cancelled" }).where(eq(ordersTable.id, orderId));
@@ -1842,7 +1842,7 @@ async function payWithBalanceAndDeliver(
       // orders that predate the reservation model). SKIP LOCKED ensures we never
       // double-claim a row held by a concurrent transaction.
       const result = await tx.execute(
-        sqlOp`SELECT id, content FROM product_stocks
+        sql`SELECT id, content FROM product_stocks
               WHERE product_id = ${item.productId}
                 AND (status = 'available' OR (status = 'reserved' AND order_id = ${orderId}))
               ORDER BY (CASE WHEN status = 'reserved' AND order_id = ${orderId} THEN 0 ELSE 1 END), created_at
@@ -1862,10 +1862,10 @@ async function payWithBalanceAndDeliver(
 
       // Step 3: Deduct wallet balance — rolls back everything if insufficient
       const deducted = await tx.update(customersTable)
-        .set({ balance: sqlOp`balance - ${totalAmount}::numeric` })
+        .set({ balance: sql`${customersTable.balance} - ${totalAmount}::numeric` })
         .where(and(
           eq(customersTable.id, customerId),
-          sqlOp`balance >= ${totalAmount}::numeric`
+          gte(customersTable.balance, sql`${totalAmount}::numeric`),
         ))
         .returning({ id: customersTable.id });
       if (deducted.length === 0) throw new Error(INSUFFICIENT);
@@ -1904,7 +1904,7 @@ async function payWithBalanceAndDeliver(
 
   // Update customer spend stats outside the transaction (non-critical, best-effort)
   await db.update(customersTable)
-    .set({ totalSpent: sqlOp`total_spent + ${parseFloat(order.totalAmount)}` })
+    .set({ totalSpent: sql`${customersTable.totalSpent} + ${parseFloat(order.totalAmount)}` })
     .where(eq(customersTable.id, customerId))
     .catch(err => logger.warn({ err, orderId }, "Failed to update totalSpent after wallet delivery"));
 
@@ -1921,7 +1921,7 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
   // can show it without scanning bot_logs on every request.
   if (isRetry) {
     await db.update(ordersTable)
-      .set({ retryCount: sqlOp`${ordersTable.retryCount} + 1` })
+      .set({ retryCount: sql`${ordersTable.retryCount} + 1` })
       .where(eq(ordersTable.id, orderId));
   }
 
@@ -1947,7 +1947,7 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
       // Prefer reserved rows already allocated to this order at creation time;
       // fall back to any available row for retries / legacy orders without reservation.
       const result = await tx.execute(
-        sqlOp`SELECT id, content FROM product_stocks
+        sql`SELECT id, content FROM product_stocks
               WHERE product_id = ${item.productId}
                 AND (status = 'available' OR (status = 'reserved' AND order_id = ${orderId}))
               ORDER BY (CASE WHEN status = 'reserved' AND order_id = ${orderId} THEN 0 ELSE 1 END), created_at
@@ -2049,8 +2049,7 @@ export async function deliverOrder(orderId: number, opts: { isRetry?: boolean } 
 
   // Update customer total spent
   // (Order status was already set to 'delivered' inside the stock-claim transaction above)
-  const { sql } = await import("drizzle-orm");
-  await db.update(customersTable).set({ totalSpent: sql`total_spent + ${parseFloat(order.totalAmount)}` }).where(eq(customersTable.id, customer.id));
+  await db.update(customersTable).set({ totalSpent: sql`${customersTable.totalSpent} + ${parseFloat(order.totalAmount)}` }).where(eq(customersTable.id, customer.id));
 
   const deliveryAction = isRetry ? "retry_delivery_sent" : "delivery_sent";
   await logBotAction(deliveryAction, customer.chatId, customer.id, `Delivered order ${order.orderCode}`, { orderId, isRetry });
@@ -2544,7 +2543,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               eq(botLogsTable.action, "stock_request"),
               eq(botLogsTable.customerId, customer.id),
               gte(botLogsTable.createdAt, since),
-              sqlOp`${botLogsTable.metadata}->>'productId' = ${String(productId)}`,
+              sql`${botLogsTable.metadata}->>'productId' = ${String(productId)}`,
             ));
           const alreadyRequested = Number(dupRow?.c ?? 0) > 0;
 
