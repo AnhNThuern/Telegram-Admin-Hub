@@ -2609,6 +2609,8 @@ components:
           type: integer
         maxOrderAgeDays:
           type: integer
+        stockRequestWindowHours:
+          type: integer
         updatedAt:
           type: string
           format: date-time
@@ -2616,6 +2618,7 @@ components:
       required:
         - maxRetryCount
         - maxOrderAgeDays
+        - stockRequestWindowHours
 
     UpdateSystemSettingsRequest:
       type: object
@@ -2628,9 +2631,14 @@ components:
           type: integer
           minimum: 1
           maximum: 365
+        stockRequestWindowHours:
+          type: integer
+          minimum: 1
+          maximum: 168
       required:
         - maxRetryCount
         - maxOrderAgeDays
+        - stockRequestWindowHours
 
     I18nString:
       type: object

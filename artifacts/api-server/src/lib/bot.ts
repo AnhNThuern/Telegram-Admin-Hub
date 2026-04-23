@@ -2,6 +2,7 @@ import { db, botLogsTable, customersTable, ordersTable, orderItemsTable, product
 import { eq, and, desc, inArray, sql as sqlOp, lt, gte, count, sum, isNotNull } from "drizzle-orm";
 import { logger } from "./logger";
 import { t, tMany, type Lang } from "./i18n";
+import { getOrCreateSystemSettings } from "./systemSettings";
 
 // Persistent conversation state for customers awaiting promo code entry.
 // Stored in `bot_pending_actions` so in-flight checkouts survive an API
@@ -2304,10 +2305,11 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             reply_markup: { inline_keyboard: [[{ text: homeBtn, callback_data: "main_menu" }]] },
           });
         } else {
-          // Rate-limit: max 5 stock requests per customer per 24-hour window (across all products).
+          // Rate-limit: max 5 stock requests per customer per configurable window (across all products).
           // Also block duplicate requests for the same product in the same window.
+          const sysSettings = await getOrCreateSystemSettings();
           const STOCK_REQUEST_DAILY_LIMIT = 5;
-          const STOCK_REQUEST_WINDOW_MS = 24 * 60 * 60 * 1000;
+          const STOCK_REQUEST_WINDOW_MS = sysSettings.stockRequestWindowHours * 60 * 60 * 1000;
           const since = new Date(Date.now() - STOCK_REQUEST_WINDOW_MS);
 
           const [totalRow] = await db

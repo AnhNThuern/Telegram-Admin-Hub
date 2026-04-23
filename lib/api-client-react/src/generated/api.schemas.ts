@@ -550,6 +550,7 @@ export interface SavePaymentConfigRequest {
 export interface SystemSettings {
   maxRetryCount: number;
   maxOrderAgeDays: number;
+  stockRequestWindowHours: number;
   updatedAt?: string | null;
 }
 
@@ -564,6 +565,11 @@ export interface UpdateSystemSettingsRequest {
    * @maximum 365
    */
   maxOrderAgeDays: number;
+  /**
+   * @minimum 1
+   * @maximum 168
+   */
+  stockRequestWindowHours: number;
 }
 
 export interface I18nString {

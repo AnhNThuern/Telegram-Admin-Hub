@@ -1012,6 +1012,7 @@ export const DeletePromotionParams = zod.object({
 export const GetSystemSettingsResponse = zod.object({
   maxRetryCount: zod.number(),
   maxOrderAgeDays: zod.number(),
+  stockRequestWindowHours: zod.number(),
   updatedAt: zod.coerce.date().nullish(),
 });
 
@@ -1022,6 +1023,8 @@ export const updateSystemSettingsBodyMaxRetryCountMax = 1000;
 
 export const updateSystemSettingsBodyMaxOrderAgeDaysMax = 365;
 
+export const updateSystemSettingsBodyStockRequestWindowHoursMax = 168;
+
 export const UpdateSystemSettingsBody = zod.object({
   maxRetryCount: zod
     .number()
@@ -1031,11 +1034,16 @@ export const UpdateSystemSettingsBody = zod.object({
     .number()
     .min(1)
     .max(updateSystemSettingsBodyMaxOrderAgeDaysMax),
+  stockRequestWindowHours: zod
+    .number()
+    .min(1)
+    .max(updateSystemSettingsBodyStockRequestWindowHoursMax),
 });
 
 export const UpdateSystemSettingsResponse = zod.object({
   maxRetryCount: zod.number(),
   maxOrderAgeDays: zod.number(),
+  stockRequestWindowHours: zod.number(),
   updatedAt: zod.coerce.date().nullish(),
 });
 

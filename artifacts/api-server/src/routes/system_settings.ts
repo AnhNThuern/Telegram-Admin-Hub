@@ -15,21 +15,23 @@ router.get("/admin/system-settings", requireAuth, async (_req, res): Promise<voi
   res.json({
     maxRetryCount: settings.maxRetryCount,
     maxOrderAgeDays: settings.maxOrderAgeDays,
+    stockRequestWindowHours: settings.stockRequestWindowHours,
     updatedAt: settings.updatedAt,
   });
 });
 
 router.put("/admin/system-settings", requireAuth, validateBody(UpdateSystemSettingsBody), async (req, res): Promise<void> => {
-  const { maxRetryCount, maxOrderAgeDays } = req.body as z.infer<typeof UpdateSystemSettingsBody>;
+  const { maxRetryCount, maxOrderAgeDays, stockRequestWindowHours } = req.body as z.infer<typeof UpdateSystemSettingsBody>;
   const existing = await getOrCreateSystemSettings();
   const [updated] = await db.update(systemSettingsTable)
-    .set({ maxRetryCount, maxOrderAgeDays })
+    .set({ maxRetryCount, maxOrderAgeDays, stockRequestWindowHours })
     .where(eq(systemSettingsTable.id, existing.id))
     .returning();
-  logger.info({ maxRetryCount, maxOrderAgeDays }, "System settings updated");
+  logger.info({ maxRetryCount, maxOrderAgeDays, stockRequestWindowHours }, "System settings updated");
   res.json({
     maxRetryCount: updated.maxRetryCount,
     maxOrderAgeDays: updated.maxOrderAgeDays,
+    stockRequestWindowHours: updated.stockRequestWindowHours,
     updatedAt: updated.updatedAt,
   });
 });
