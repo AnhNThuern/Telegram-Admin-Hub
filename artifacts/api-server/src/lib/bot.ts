@@ -759,7 +759,17 @@ async function showActivePromotions(chatId: number | string, lang: Lang = "vi"):
 
 async function showCategories(chatId: number | string, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
   const { categoriesTable } = await import("@workspace/db");
-  const categories = await db.select().from(categoriesTable).where(eq(categoriesTable.isActive, true));
+  // Include per-category available stock count so we can show ✅ / ❌ labels
+  const categories = await db.select({
+    id: categoriesTable.id,
+    name: categoriesTable.name,
+    icon: categoriesTable.icon,
+    stockCount: sqlOp<number>`(
+      SELECT COUNT(*) FROM product_stocks ps
+      JOIN products p ON ps.product_id = p.id
+      WHERE p.category_id = ${categoriesTable.id} AND p.is_active = true AND ps.status = 'available'
+    )::int`,
+  }).from(categoriesTable).where(eq(categoriesTable.isActive, true));
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
     t("cat.none", lang),
     t("btn.home", lang),
@@ -771,7 +781,11 @@ async function showCategories(chatId: number | string, editMessageId?: number, l
     });
     return;
   }
-  const keyboard = categories.map(c => [{ text: `${c.icon ?? "📁"} ${c.name}`, callback_data: `cat_${c.id}` }]);
+  const outLabel = lang === "en" ? "Out of Stock" : "Hết hàng";
+  const keyboard = categories.map(c => [{
+    text: `${c.icon ?? "📁"} ${c.name} ${c.stockCount > 0 ? `✅ (${c.stockCount})` : `❌ ${outLabel}`}`,
+    callback_data: `cat_${c.id}`,
+  }]);
   keyboard.push([{ text: await t("btn.back", lang), callback_data: "main_menu" }]);
   await renderView(chatId, editMessageId, titleLabel, { reply_markup: { inline_keyboard: keyboard } });
 }
@@ -799,8 +813,9 @@ async function showProducts(chatId: number | string, categoryId: number, editMes
     });
     return;
   }
+  const outLabel = lang === "en" ? "Out of Stock" : "Hết hàng";
   const keyboard = products.map(p => [{
-    text: `${p.productIcon ?? "📦"} ${p.name} - ${parseFloat(p.price).toLocaleString(locale)}đ ${p.stockCount > 0 ? "✅" : "❌"}`,
+    text: `${p.productIcon ?? "📦"} ${p.name} - ${parseFloat(p.price).toLocaleString(locale)}đ ${p.stockCount > 0 ? `✅ (${p.stockCount})` : `❌ ${outLabel}`}`,
     callback_data: `prod_${p.id}`,
   }]);
   keyboard.push([{ text: backLabel, callback_data: "browse_products" }]);
@@ -2163,10 +2178,22 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
             reply_markup: { inline_keyboard: [[{ text: homeBtn, callback_data: "main_menu" }]] },
           });
         } else {
-          // Deduplication: only allow one stock request per (customerId, productId)
-          // within a 24-hour rolling window to prevent admin notification spam.
+          // Rate-limit: max 5 stock requests per customer per 24-hour window (across all products).
+          // Also block duplicate requests for the same product in the same window.
+          const STOCK_REQUEST_DAILY_LIMIT = 5;
           const STOCK_REQUEST_WINDOW_MS = 24 * 60 * 60 * 1000;
           const since = new Date(Date.now() - STOCK_REQUEST_WINDOW_MS);
+
+          const [totalRow] = await db
+            .select({ c: count() })
+            .from(botLogsTable)
+            .where(and(
+              eq(botLogsTable.action, "stock_request"),
+              eq(botLogsTable.customerId, customer.id),
+              gte(botLogsTable.createdAt, since),
+            ));
+          const totalToday = Number(totalRow?.c ?? 0);
+
           const [dupRow] = await db
             .select({ c: count() })
             .from(botLogsTable)
@@ -2179,17 +2206,18 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
           const alreadyRequested = Number(dupRow?.c ?? 0) > 0;
 
           const stockStrings = await tMany([
-            "stock_req.duplicate", "stock_req.confirmed",
+            "stock_req.duplicate", "stock_req.confirmed", "stock_req.daily_limit",
             "btn.check_again", "btn.view_other", "btn.home",
           ], lang);
           const icon = product.productIcon ?? "📦";
+          const navRow = [
+            { text: stockStrings["btn.view_other"], callback_data: "browse_products" },
+            { text: stockStrings["btn.home"], callback_data: "main_menu" },
+          ];
 
           if (alreadyRequested) {
-            // Customer already requested this product within the rate-limit window;
-            // show a friendly reminder without sending another admin notification.
-            await renderView(
-              chatId,
-              messageId,
+            // Already requested this product — friendly reminder
+            await renderView(chatId, messageId,
               stockStrings["stock_req.duplicate"]
                 .replace("{icon}", icon)
                 .replace("{name}", product.name),
@@ -2197,10 +2225,17 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
                 reply_markup: {
                   inline_keyboard: [
                     [{ text: stockStrings["btn.check_again"], callback_data: `prod_${productId}` }],
-                    [{ text: stockStrings["btn.view_other"], callback_data: "browse_products" }, { text: stockStrings["btn.home"], callback_data: "main_menu" }],
+                    navRow,
                   ],
                 },
               }
+            );
+          } else if (totalToday >= STOCK_REQUEST_DAILY_LIMIT) {
+            // Hit the daily cap across all products
+            await renderView(chatId, messageId,
+              stockStrings["stock_req.daily_limit"]
+                .replace("{limit}", String(STOCK_REQUEST_DAILY_LIMIT)),
+              { reply_markup: { inline_keyboard: [navRow] } }
             );
           } else {
             await logBotAction("stock_request", String(chatId), customer.id,
@@ -2219,9 +2254,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
               { productId, customerId: customer.id, chatId: String(chatId) }
             );
 
-            await renderView(
-              chatId,
-              messageId,
+            await renderView(chatId, messageId,
               stockStrings["stock_req.confirmed"]
                 .replace("{icon}", icon)
                 .replace("{name}", product.name),
@@ -2229,7 +2262,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
                 reply_markup: {
                   inline_keyboard: [
                     [{ text: stockStrings["btn.check_again"], callback_data: `prod_${productId}` }],
-                    [{ text: stockStrings["btn.view_other"], callback_data: "browse_products" }, { text: stockStrings["btn.home"], callback_data: "main_menu" }],
+                    navRow,
                   ],
                 },
               }

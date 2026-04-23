@@ -271,6 +271,7 @@ export const DEFAULT_STRINGS: Array<{ key: string; vi: string; en: string }> = [
   // ── Stock requests ──
   { key: "stock_req.duplicate", vi: "🔔 <b>Yêu cầu đã được ghi nhận trước đó</b>\n\nBạn đã gửi yêu cầu cho sản phẩm {icon} <b>{name}</b> rồi.\n\nChúng tôi sẽ thông báo ngay khi có hàng. Hãy quay lại kiểm tra sau nhé! 🙏", en: "🔔 <b>Request already registered</b>\n\nYou already submitted a request for {icon} <b>{name}</b>.\n\nWe'll notify you as soon as it's back in stock. Check back later! 🙏" },
   { key: "stock_req.confirmed", vi: "✅ <b>Đã ghi nhận yêu cầu của bạn!</b>\n\n{icon} <b>{name}</b> hiện đang hết hàng.\n\nChúng tôi đã nhận được yêu cầu và sẽ bổ sung sớm nhất có thể. Hãy quay lại kiểm tra sau nhé! 🙏", en: "✅ <b>Request received!</b>\n\n{icon} <b>{name}</b> is currently out of stock.\n\nWe've noted your request and will restock as soon as possible. Check back later! 🙏" },
+  { key: "stock_req.daily_limit", vi: "⚠️ <b>Bạn đã dùng hết {limit} lượt yêu cầu hàng trong ngày hôm nay.</b>\n\nVui lòng quay lại vào ngày mai hoặc chọn sản phẩm khác.", en: "⚠️ <b>You've used all {limit} stock requests for today.</b>\n\nPlease come back tomorrow or browse other products." },
 
   // ── Quantity (additional) ──
   { key: "qty.stock_hint", vi: "\nHiện còn {n} trong kho.", en: "\n{n} currently in stock." },
