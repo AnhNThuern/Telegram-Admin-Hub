@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, and, sql, count, or, lt } from "drizzle-orm";
+import { eq, ilike, and, sql, count, or, lt, inArray } from "drizzle-orm";
 import { db, productsTable, productStocksTable, categoriesTable, ordersTable, orderItemsTable, botLogsTable, customersTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateBody, validateParams, validateQuery } from "../middlewares/validate";
@@ -327,11 +327,27 @@ router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRes
     return;
   }
 
-  const { sent, total, botConfigured } = await broadcastProductNotification(productId, product.name, product.price);
+  const { sent, total, botConfigured, notifiedChatIds } = await broadcastProductNotification(productId, product.name, product.price);
 
   if (!botConfigured) {
     res.status(503).json({ error: "Bot token chưa được cấu hình. Vui lòng cấu hình Telegram bot trước khi gửi thông báo." });
     return;
+  }
+
+  // Clear stock-request log entries only for customers who were successfully
+  // notified, so the demand count stays accurate for anyone who wasn't reached.
+  if (notifiedChatIds.length > 0) {
+    const deleted = await db
+      .delete(botLogsTable)
+      .where(
+        and(
+          eq(botLogsTable.action, "stock_request"),
+          sql`(${botLogsTable.metadata}->>'productId')::int = ${productId}`,
+          inArray(botLogsTable.chatId, notifiedChatIds)
+        )
+      )
+      .returning({ id: botLogsTable.id });
+    logger.info({ productId, notified: notifiedChatIds.length, cleared: deleted.length }, "Cleared stock_request logs after notify broadcast");
   }
 
   res.json({

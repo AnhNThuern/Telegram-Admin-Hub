@@ -481,9 +481,9 @@ export async function broadcastProductNotification(
   productId: number,
   productName: string,
   productPrice: string,
-): Promise<{ sent: number; total: number; botConfigured: boolean }> {
+): Promise<{ sent: number; total: number; botConfigured: boolean; notifiedChatIds: string[] }> {
   const token = await getBotToken();
-  if (!token) return { sent: 0, total: 0, botConfigured: false };
+  if (!token) return { sent: 0, total: 0, botConfigured: false, notifiedChatIds: [] };
 
   const customers = await db
     .select({ chatId: customersTable.chatId })
@@ -506,13 +506,17 @@ export async function broadcastProductNotification(
 
   let sent = 0;
   const total = customers.length;
+  const notifiedChatIds: string[] = [];
 
   for (let i = 0; i < customers.length; i += BATCH_SIZE) {
     const batch = customers.slice(i, i + BATCH_SIZE);
     await Promise.all(
       batch.map(async (c) => {
         const ok = await sendMessage(c.chatId, text, { reply_markup: inlineKeyboard });
-        if (ok) sent++;
+        if (ok) {
+          sent++;
+          notifiedChatIds.push(c.chatId);
+        }
       }),
     );
     if (i + BATCH_SIZE < customers.length) {
@@ -528,7 +532,7 @@ export async function broadcastProductNotification(
     { productId, productName, sent, total },
   );
 
-  return { sent, total, botConfigured: true };
+  return { sent, total, botConfigured: true, notifiedChatIds };
 }
 
 async function upsertCustomer(from: { id: number; first_name?: string; last_name?: string; username?: string }): Promise<{ customer: typeof customersTable.$inferSelect; isNew: boolean }> {
