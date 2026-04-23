@@ -1,9 +1,15 @@
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, MutationCache, QueryCache } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
 import NotFound from "@/pages/not-found";
+
+function is401(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { status?: number };
+  return e.status === 401;
+}
 
 import { AppLayout } from "@/components/layout/app-layout";
 import Login from "@/pages/login";
@@ -25,10 +31,27 @@ import SettingsI18n from "@/pages/settings-i18n";
 import BotLogs from "@/pages/bot-logs";
 import TransactionDetails from "@/pages/transaction-details";
 
+function redirectToLogin() {
+  queryClient.clear();
+  window.location.replace(
+    (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "") + "/login"
+  );
+}
+
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError(error) {
+      if (is401(error)) redirectToLogin();
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError(error) {
+      if (is401(error)) redirectToLogin();
+    },
+  }),
   defaultOptions: {
     queries: {
-      retry: 1,
+      retry: (failureCount, error) => !is401(error) && failureCount < 1,
       refetchOnWindowFocus: false,
     },
   },
