@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, and, sql, count, or, lt } from "drizzle-orm";
-import { db, productsTable, productStocksTable, categoriesTable, ordersTable, orderItemsTable, botLogsTable, customersTable } from "@workspace/db";
+import { eq, ilike, and, sql, count, or, lt, desc } from "drizzle-orm";
+import { db, productsTable, productStocksTable, categoriesTable, ordersTable, orderItemsTable, botLogsTable, customersTable, notificationLogsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { validateBody, validateParams, validateQuery } from "../middlewares/validate";
 import { deliverOrder, sendAdminNotification, sendMessageToCustomer, broadcastProductNotification } from "../lib/bot";
@@ -376,6 +376,9 @@ router.get("/products/:id/notify-estimate", requireAuth, validateParams(GetNotif
   res.json({ count: countResult });
 });
 
+const NOTIFY_COOLDOWN_MINUTES = 15;
+const notifyInProgress = new Set<number>();
+
 router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRestockedParams), async (req, res): Promise<void> => {
   const { id: productId } = req.params as unknown as z.infer<typeof NotifyProductRestockedParams>;
   const parsed = NotifyProductRestockedBody.safeParse(req.body ?? {});
@@ -384,6 +387,14 @@ router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRes
     return;
   }
   const audience = parsed.data.audience ?? "all";
+
+  if (notifyInProgress.has(productId)) {
+    res.status(429).json({
+      error: "cooldown",
+      message: "Thông báo đang được gửi, vui lòng đợi.",
+    });
+    return;
+  }
 
   const [product] = await db.select({
     id: productsTable.id,
@@ -396,18 +407,54 @@ router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRes
     return;
   }
 
-  const { sent, total, botConfigured } = await broadcastProductNotification(productId, product.name, product.price, audience);
+  const cooldownCutoff = new Date(Date.now() - NOTIFY_COOLDOWN_MINUTES * 60 * 1000);
+  const [recentLog] = await db
+    .select({ sentAt: notificationLogsTable.sentAt, sent: notificationLogsTable.sent, total: notificationLogsTable.total })
+    .from(notificationLogsTable)
+    .where(
+      and(
+        eq(notificationLogsTable.productId, productId),
+        sql`${notificationLogsTable.sentAt} >= ${cooldownCutoff}`
+      )
+    )
+    .orderBy(desc(notificationLogsTable.sentAt))
+    .limit(1);
 
-  if (!botConfigured) {
-    res.status(503).json({ error: "Bot token chưa được cấu hình. Vui lòng cấu hình Telegram bot trước khi gửi thông báo." });
+  if (recentLog) {
+    const minutesAgo = Math.max(1, Math.round((Date.now() - recentLog.sentAt.getTime()) / 60000));
+    res.status(429).json({
+      error: "cooldown",
+      sent: recentLog.sent,
+      total: recentLog.total,
+      message: `Đã gửi thông báo ${minutesAgo} phút trước`,
+    });
     return;
   }
 
-  res.json({
-    sent,
-    total,
-    message: `Đã gửi thông báo đến ${sent}/${total} người dùng`,
-  });
+  notifyInProgress.add(productId);
+  try {
+    const { sent, total, botConfigured } = await broadcastProductNotification(productId, product.name, product.price, audience);
+
+    if (!botConfigured) {
+      res.status(503).json({ error: "Bot token chưa được cấu hình. Vui lòng cấu hình Telegram bot trước khi gửi thông báo." });
+      return;
+    }
+
+    await db.insert(notificationLogsTable).values({
+      productId,
+      audience,
+      sent,
+      total,
+    });
+
+    res.json({
+      sent,
+      total,
+      message: `Đã gửi thông báo đến ${sent}/${total} người dùng`,
+    });
+  } finally {
+    notifyInProgress.delete(productId);
+  }
 });
 
 export default router;

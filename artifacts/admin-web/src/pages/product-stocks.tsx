@@ -86,8 +86,14 @@ export default function ProductStocks({ params }: { params: { id: string } }) {
           setIsNotifyOpen(false);
           toast({ title: res.message });
         },
-        onError: () => {
-          toast({ title: "Không thể gửi thông báo", variant: "destructive" });
+        onError: (err) => {
+          const data = (err as { status?: number; data?: { message?: string; error?: string } }).data;
+          const status = (err as { status?: number }).status;
+          if (status === 429 && data?.message) {
+            toast({ title: data.message, description: "Vui lòng đợi trước khi gửi lại thông báo.", variant: "destructive" });
+          } else {
+            toast({ title: "Không thể gửi thông báo", variant: "destructive" });
+          }
         },
       }
     );
