@@ -756,26 +756,7 @@ async function showActivePromotions(chatId: number | string, lang: Lang = "vi"):
 }
 
 async function showCategories(chatId: number | string, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  const { categoriesTable } = await import("@workspace/db");
-  // Two separate queries to avoid Drizzle ORM v0.45.1 bug where column references
-  // inside sql`` templates get mangled when used alongside named db.select() fields.
-  const [categories, stockRows] = await Promise.all([
-    db.select({
-      id: categoriesTable.id,
-      name: categoriesTable.name,
-      icon: categoriesTable.icon,
-    }).from(categoriesTable).where(eq(categoriesTable.isActive, true)),
-    db.select({
-      categoryId: productsTable.categoryId,
-      cnt: count(),
-    })
-      .from(productStocksTable)
-      .innerJoin(productsTable, eq(productStocksTable.productId, productsTable.id))
-      .where(and(eq(productsTable.isActive, true), eq(productStocksTable.status, "available")))
-      .groupBy(productsTable.categoryId),
-  ]);
-  const stockMap = new Map(stockRows.map(r => [r.categoryId, Number(r.cnt)]));
-  const categoriesWithStock = categories.map(c => ({ ...c, stockCount: stockMap.get(c.id) ?? 0 }));
+  const categoriesWithStock = await queryCategoriesWithStock();
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
     t("cat.none", lang),
     t("btn.home", lang),
@@ -797,26 +778,7 @@ async function showCategories(chatId: number | string, editMessageId?: number, l
 }
 
 async function showProducts(chatId: number | string, categoryId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  // Two separate queries to avoid Drizzle ORM v0.45.1 bug where column references
-  // inside sql`` templates get mangled when used alongside named db.select() fields.
-  const [productRows, stockRows] = await Promise.all([
-    db.select({
-      id: productsTable.id,
-      name: productsTable.name,
-      price: productsTable.price,
-      productIcon: productsTable.productIcon,
-    }).from(productsTable).where(and(eq(productsTable.categoryId, categoryId), eq(productsTable.isActive, true))),
-    db.select({
-      productId: productStocksTable.productId,
-      cnt: count(),
-    })
-      .from(productStocksTable)
-      .innerJoin(productsTable, eq(productStocksTable.productId, productsTable.id))
-      .where(and(eq(productsTable.categoryId, categoryId), eq(productsTable.isActive, true), eq(productStocksTable.status, "available")))
-      .groupBy(productStocksTable.productId),
-  ]);
-  const stockMap = new Map(stockRows.map(r => [r.productId, Number(r.cnt)]));
-  const products = productRows.map(p => ({ ...p, stockCount: stockMap.get(p.id) ?? 0 }));
+  const products = await queryProductsWithStock(categoryId);
 
   const [noneMsg, backLabel, titleLabel] = await Promise.all([
     t("prod.none", lang),
@@ -841,23 +803,7 @@ async function showProducts(chatId: number | string, categoryId: number, editMes
 }
 
 async function showProductDetail(chatId: number | string, productId: number, editMessageId?: number, lang: Lang = "vi"): Promise<void> {
-  // Two separate queries to avoid Drizzle ORM v0.45.1 bug where column references
-  // inside sql`` templates get mangled when used alongside named db.select() fields.
-  const [[rawProduct], [stockRow]] = await Promise.all([
-    db.select({
-      id: productsTable.id,
-      name: productsTable.name,
-      description: productsTable.description,
-      price: productsTable.price,
-      originalPrice: productsTable.originalPrice,
-      minQuantity: productsTable.minQuantity,
-      maxQuantity: productsTable.maxQuantity,
-      categoryId: productsTable.categoryId,
-    }).from(productsTable).where(eq(productsTable.id, productId)),
-    db.select({ c: count() }).from(productStocksTable)
-      .where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available"))),
-  ]);
-  const product = rawProduct ? { ...rawProduct, stockCount: Number(stockRow?.c ?? 0) } : undefined;
+  const product = await queryProductDetail(productId);
 
   const strings = await tMany([
     "prod.not_found", "btn.home", "prod.in_stock", "prod.out_of_stock",
@@ -925,6 +871,91 @@ async function showProductDetail(chatId: number | string, productId: number, edi
   keyboard.push(backRow);
 
   await renderView(chatId, editMessageId, msg, { reply_markup: { inline_keyboard: keyboard } });
+}
+
+// ---------------------------------------------------------------------------
+// Exported data-query helpers
+// These thin wrappers expose the same DB query logic used by showCategories,
+// showProducts, and showProductDetail so integration tests can verify that
+// stock counts are computed correctly without needing to call the Telegram API.
+// ---------------------------------------------------------------------------
+
+export async function queryCategoriesWithStock(): Promise<
+  Array<{ id: number; name: string; icon: string | null; stockCount: number }>
+> {
+  const { categoriesTable: cats } = await import("@workspace/db");
+  const [categories, stockRows] = await Promise.all([
+    db.select({
+      id: cats.id,
+      name: cats.name,
+      icon: cats.icon,
+    }).from(cats).where(eq(cats.isActive, true)),
+    db.select({
+      categoryId: productsTable.categoryId,
+      cnt: count(),
+    })
+      .from(productStocksTable)
+      .innerJoin(productsTable, eq(productStocksTable.productId, productsTable.id))
+      .where(and(eq(productsTable.isActive, true), eq(productStocksTable.status, "available")))
+      .groupBy(productsTable.categoryId),
+  ]);
+  const stockMap = new Map(stockRows.map(r => [r.categoryId, Number(r.cnt)]));
+  return categories.map(c => ({ ...c, stockCount: stockMap.get(c.id) ?? 0 }));
+}
+
+export async function queryProductsWithStock(categoryId: number): Promise<
+  Array<{ id: number; name: string; price: string; productIcon: string | null; stockCount: number }>
+> {
+  const [productRows, stockRows] = await Promise.all([
+    db.select({
+      id: productsTable.id,
+      name: productsTable.name,
+      price: productsTable.price,
+      productIcon: productsTable.productIcon,
+    }).from(productsTable).where(and(eq(productsTable.categoryId, categoryId), eq(productsTable.isActive, true))),
+    db.select({
+      productId: productStocksTable.productId,
+      cnt: count(),
+    })
+      .from(productStocksTable)
+      .innerJoin(productsTable, eq(productStocksTable.productId, productsTable.id))
+      .where(and(eq(productsTable.categoryId, categoryId), eq(productsTable.isActive, true), eq(productStocksTable.status, "available")))
+      .groupBy(productStocksTable.productId),
+  ]);
+  const stockMap = new Map(stockRows.map(r => [r.productId, Number(r.cnt)]));
+  return productRows.map(p => ({ ...p, stockCount: stockMap.get(p.id) ?? 0 }));
+}
+
+export async function queryProductDetail(productId: number): Promise<
+  | {
+      id: number;
+      name: string;
+      description: string | null;
+      price: string;
+      originalPrice: string | null;
+      minQuantity: number;
+      maxQuantity: number;
+      categoryId: number | null;
+      stockCount: number;
+    }
+  | undefined
+> {
+  const [[rawProduct], [stockRow]] = await Promise.all([
+    db.select({
+      id: productsTable.id,
+      name: productsTable.name,
+      description: productsTable.description,
+      price: productsTable.price,
+      originalPrice: productsTable.originalPrice,
+      minQuantity: productsTable.minQuantity,
+      maxQuantity: productsTable.maxQuantity,
+      categoryId: productsTable.categoryId,
+    }).from(productsTable).where(eq(productsTable.id, productId)),
+    db.select({ c: count() }).from(productStocksTable)
+      .where(and(eq(productStocksTable.productId, productId), eq(productStocksTable.status, "available"))),
+  ]);
+  if (!rawProduct) return undefined;
+  return { ...rawProduct, stockCount: Number(stockRow?.c ?? 0) };
 }
 
 // Look up the most recent promo code the customer successfully used within the
