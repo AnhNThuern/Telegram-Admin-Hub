@@ -409,6 +409,27 @@ async function upsertCustomer(from: { id: number; first_name?: string; last_name
   return customer;
 }
 
+/**
+ * Convert a lightweight subset of Markdown to Telegram HTML so admins can
+ * write either style in the welcome message field.
+ *
+ * Supported conversions (safe — no HTML injection because the surrounding
+ * parse_mode is already HTML and Telegram auto-escapes unknown tags):
+ *   **bold**  → <b>bold</b>
+ *   __bold__  → <b>bold</b>
+ *   _italic_  → <i>italic</i>
+ *
+ * HTML tags already present in the string (<b>, <i>, <code>, etc.) are passed
+ * through unchanged, so admins who prefer writing HTML directly still work.
+ */
+function mdToHtml(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/gs, "<b>$1</b>")
+    .replace(/__(.+?)__/gs, "<b>$1</b>")
+    .replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "<i>$1</i>")
+    .replace(/(?<!_)_([^_\n]+?)_(?!_)/g, "<i>$1</i>");
+}
+
 async function showMainMenu(chatId: number | string, customerName?: string, editMessageId?: number): Promise<void> {
   const name = customerName ?? "bạn";
   const { shopName, welcomeMessage } = await getBotConfig();
@@ -417,9 +438,12 @@ async function showMainMenu(chatId: number | string, customerName?: string, edit
   if (welcomeMessage && welcomeMessage.trim()) {
     // Admin has configured a custom welcome message. Support {name} and {shop_name}
     // placeholders so the message can be personalized without code changes.
-    welcomeText = welcomeMessage
-      .replace(/\{name\}/g, `<b>${name}</b>`)
-      .replace(/\{shop_name\}/g, shopName ? `<b>${shopName}</b>` : "cửa hàng");
+    // Convert Markdown bold/italic to HTML (bot uses HTML parse mode throughout).
+    welcomeText = mdToHtml(
+      welcomeMessage
+        .replace(/\{name\}/g, `<b>${name}</b>`)
+        .replace(/\{shop_name\}/g, shopName ? `<b>${shopName}</b>` : "cửa hàng"),
+    );
   } else {
     const shop = shopName ? `<b>${shopName}</b>` : "cửa hàng";
     welcomeText = `👋 Chào mừng <b>${name}</b> đến với ${shop}!\n\nChọn tùy chọn bên dưới:`;

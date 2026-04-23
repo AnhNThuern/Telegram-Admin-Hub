@@ -82,16 +82,27 @@ export default function SettingsBot() {
   const watchedWelcomeMessage = welcomeForm.watch("welcomeMessage");
   const welcomeMessageLength = (watchedWelcomeMessage ?? "").length;
 
-  // Build a live preview of the welcome message
-  const welcomePreview = (() => {
-    const name = "Nguyễn Văn A";
-    const shop = watchedShopName?.trim() || "cửa hàng";
+  // Convert a small subset of Markdown to HTML for the live preview panel.
+  // Matches the same conversions as the backend mdToHtml() function in bot.ts.
+  const mdToHtmlPreview = (text: string): string =>
+    text
+      .replace(/\*\*(.+?)\*\*/gs, "<strong>$1</strong>")
+      .replace(/__(.+?)__/gs, "<strong>$1</strong>")
+      .replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "<em>$1</em>")
+      .replace(/(?<!_)_([^_\n]+?)_(?!_)/g, "<em>$1</em>")
+      .replace(/\n/g, "<br/>");
+
+  // Build a live preview of the welcome message (applies same transforms as the bot)
+  const welcomePreviewHtml = (() => {
+    const name = "<strong>Nguyễn Văn A</strong>";
+    const shop = `<strong>${watchedShopName?.trim() || "cửa hàng"}</strong>`;
     if (watchedWelcomeMessage?.trim()) {
-      return watchedWelcomeMessage
+      const substituted = watchedWelcomeMessage
         .replace(/\{name\}/g, name)
         .replace(/\{shop_name\}/g, shop);
+      return mdToHtmlPreview(substituted);
     }
-    return `👋 Chào mừng ${name} đến với ${shop}!\n\nChọn tùy chọn bên dưới:`;
+    return `👋 Chào mừng ${name} đến với ${shop}!<br/><br/>Chọn tùy chọn bên dưới:`;
   })();
 
   useEffect(() => {
@@ -450,6 +461,7 @@ export default function SettingsBot() {
           <CardDescription>
             Tuỳ chỉnh tên cửa hàng và lời chào hiển thị khi khách gõ <code>/start</code>.
             Hỗ trợ biến <code>{"{name}"}</code> (tên khách) và <code>{"{shop_name}"}</code> (tên cửa hàng).
+            Định dạng: <code>**in đậm**</code> hoặc HTML <code>&lt;b&gt;in đậm&lt;/b&gt;</code>.
             Để trống để dùng mặc định.
           </CardDescription>
         </CardHeader>
@@ -503,9 +515,11 @@ export default function SettingsBot() {
                 />
                 <div className="space-y-2">
                   <p className="text-sm font-medium leading-none">Xem trước</p>
-                  <div className="rounded-md border border-border bg-accent/30 p-3 text-sm whitespace-pre-wrap min-h-[160px] text-muted-foreground font-mono leading-relaxed">
-                    {welcomePreview}
-                  </div>
+                  <div
+                    className="rounded-md border border-border bg-accent/30 p-3 text-sm min-h-[160px] text-muted-foreground font-mono leading-relaxed"
+                    // eslint-disable-next-line react/no-danger
+                    dangerouslySetInnerHTML={{ __html: welcomePreviewHtml }}
+                  />
                   <p className="text-xs text-muted-foreground">Đây là lời chào mẫu khách sẽ thấy (tên khách mẫu: Nguyễn Văn A).</p>
                 </div>
               </div>
