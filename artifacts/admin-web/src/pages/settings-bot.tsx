@@ -77,6 +77,15 @@ export default function SettingsBot() {
     }
   }, [config, form, menuTextsForm]);
 
+  const getApiErrorMessage = (err: unknown): string => {
+    if (err && typeof err === "object") {
+      const e = err as { data?: { error?: string }; message?: string };
+      if (e.data?.error) return e.data.error;
+      if (e.message) return e.message;
+    }
+    return "Đã xảy ra lỗi không xác định";
+  };
+
   const onSubmit = (data: BotFormValues) => {
     saveConfig.mutate(
       { data: { botToken: data.botToken, adminChatId: data.adminChatId || null } },
@@ -84,6 +93,9 @@ export default function SettingsBot() {
         onSuccess: () => {
           toast({ title: "Đã lưu cấu hình Bot" });
           queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
+        },
+        onError: (err) => {
+          toast({ variant: "destructive", title: "Lưu thất bại", description: getApiErrorMessage(err) });
         },
       }
     );
@@ -106,6 +118,9 @@ export default function SettingsBot() {
           toast({ title: "Đã lưu nội dung menu" });
           queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
         },
+        onError: (err) => {
+          toast({ variant: "destructive", title: "Lưu thất bại", description: getApiErrorMessage(err) });
+        },
       },
     );
   };
@@ -113,7 +128,11 @@ export default function SettingsBot() {
   const handleTestToken = () => {
     const token = form.getValues("botToken");
     if (!token) return;
-    
+    // Cannot test a masked token (loaded from server) — prompt user to re-enter
+    if (token.includes("****")) {
+      toast({ variant: "destructive", title: "Nhập lại token để kiểm tra", description: "Token hiện đang ẩn. Hãy xóa và nhập lại token thật để kiểm tra." });
+      return;
+    }
     testToken.mutate(
       { data: { token } },
       {
@@ -123,6 +142,9 @@ export default function SettingsBot() {
           } else {
             toast({ variant: "destructive", title: "Token không hợp lệ", description: res.error || "Lỗi không xác định" });
           }
+        },
+        onError: (err) => {
+          toast({ variant: "destructive", title: "Kiểm tra thất bại", description: getApiErrorMessage(err) });
         },
       }
     );
@@ -135,6 +157,9 @@ export default function SettingsBot() {
         onSuccess: () => {
           toast({ title: "Đã thiết lập Webhook" });
           queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
+        },
+        onError: (err) => {
+          toast({ variant: "destructive", title: "Thiết lập Webhook thất bại", description: getApiErrorMessage(err) });
         },
       }
     );
@@ -149,10 +174,16 @@ export default function SettingsBot() {
         onSuccess: () => {
           setWebhook.mutate(undefined, {
             onSuccess: () => {
-              toast({ title: "Đã khởi động Bot" });
+              toast({ title: "Đã khởi động Bot", description: "Webhook đã được thiết lập thành công." });
               queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
             },
+            onError: (err) => {
+              toast({ variant: "destructive", title: "Khởi động Bot thất bại", description: getApiErrorMessage(err) });
+            },
           });
+        },
+        onError: (err) => {
+          toast({ variant: "destructive", title: "Lưu cấu hình thất bại", description: getApiErrorMessage(err) });
         },
       }
     );
@@ -167,6 +198,9 @@ export default function SettingsBot() {
         onSuccess: () => {
           toast({ title: "Đã ngắt kết nối Bot" });
           queryClient.invalidateQueries({ queryKey: getGetBotConfigQueryKey() });
+        },
+        onError: (err) => {
+          toast({ variant: "destructive", title: "Ngắt kết nối thất bại", description: getApiErrorMessage(err) });
         },
       }
     );
