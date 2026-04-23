@@ -5,7 +5,7 @@ ALTER TABLE payment_configs ADD COLUMN IF NOT EXISTS binance_merchant_trade_no_p
 ALTER TABLE payment_configs ADD COLUMN IF NOT EXISTS binance_is_active BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- USDT exchange rate for Binance Pay (Task #61: global VND/USDT rate, admin-configured)
-ALTER TABLE payment_configs ADD COLUMN IF NOT EXISTS usdt_rate NUMERIC(12, 4);
+ALTER TABLE payment_configs ADD COLUMN IF NOT EXISTS usdt_rate NUMERIC(20, 6);
 
 -- Binance prepay ID for webhook correlation
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS binance_prepay_id TEXT;
