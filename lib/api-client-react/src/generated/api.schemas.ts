@@ -639,3 +639,7 @@ export type ListBotLogsParams = {
 };
 
 export type HandleSepayWebhookBody = { [key: string]: unknown };
+
+export type FlushI18nCache200 = {
+  ok: boolean;
+};

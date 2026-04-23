@@ -7,6 +7,11 @@ import { z } from "zod";
 
 const router: IRouter = Router();
 
+router.post("/i18n/flush-cache", requireAuth, async (_req, res): Promise<void> => {
+  invalidateI18nCache();
+  res.json({ ok: true });
+});
+
 router.get("/i18n/strings", requireAuth, async (_req, res): Promise<void> => {
   const rows = await db.select().from(i18nStringsTable).orderBy(i18nStringsTable.key);
   res.json({ data: rows });

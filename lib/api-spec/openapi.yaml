@@ -1171,6 +1171,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/BulkUpdateI18nStringsResponse"
 
+  /i18n/flush-cache:
+    post:
+      operationId: flushI18nCache
+      tags: [i18n]
+      summary: Flush the in-memory i18n cache so the bot picks up changes immediately
+      responses:
+        "200":
+          description: Cache flushed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+
   /i18n/strings/{key}:
     patch:
       operationId: updateI18nString

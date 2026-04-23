@@ -34,6 +34,7 @@ import type {
   CustomerListResponse,
   DashboardStats,
   ErrorResponse,
+  FlushI18nCache200,
   GetCustomerOrdersParams,
   GetCustomerTransactionsParams,
   GetRestockQueue200,
@@ -4536,6 +4537,87 @@ export const useBulkUpdateI18nStrings = <
   TContext
 > => {
   return useMutation(getBulkUpdateI18nStringsMutationOptions(options));
+};
+
+/**
+ * @summary Flush the in-memory i18n cache so the bot picks up changes immediately
+ */
+export const getFlushI18nCacheUrl = () => {
+  return `/api/i18n/flush-cache`;
+};
+
+export const flushI18nCache = async (
+  options?: RequestInit,
+): Promise<FlushI18nCache200> => {
+  return customFetch<FlushI18nCache200>(getFlushI18nCacheUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getFlushI18nCacheMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof flushI18nCache>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof flushI18nCache>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["flushI18nCache"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof flushI18nCache>>,
+    void
+  > = () => {
+    return flushI18nCache(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FlushI18nCacheMutationResult = NonNullable<
+  Awaited<ReturnType<typeof flushI18nCache>>
+>;
+
+export type FlushI18nCacheMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Flush the in-memory i18n cache so the bot picks up changes immediately
+ */
+export const useFlushI18nCache = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof flushI18nCache>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof flushI18nCache>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getFlushI18nCacheMutationOptions(options));
 };
 
 /**

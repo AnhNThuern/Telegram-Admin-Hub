@@ -1,25 +1,52 @@
 import { useState, useMemo } from "react";
-import { useListI18nStrings, useBulkUpdateI18nStrings, getListI18nStringsQueryKey } from "@workspace/api-client-react";
+import { useListI18nStrings, useBulkUpdateI18nStrings, useFlushI18nCache, getListI18nStringsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Search, Save, RotateCcw } from "lucide-react";
+import { Loader2, Search, Save, RotateCcw, Zap, Eye, EyeOff } from "lucide-react";
 
 type LangTab = "vi" | "en";
 
 type EditMap = Record<string, { vi: string; en: string }>;
 
+const SAMPLE_VALUES: Record<string, string> = {
+  name: "Nguyễn Văn A",
+  shop: "TechShop",
+  code: "ORD-12345",
+  amount: "150.000",
+  balance: "500.000",
+  price: "99.000",
+  min: "1",
+  max: "10",
+  n: "5",
+  product: "iPhone 15",
+  qty: "2",
+  status: "đã thanh toán",
+};
+
+function renderPreview(template: string): string {
+  return template.replace(/\{(\w+)\}/g, (_, key) => {
+    return SAMPLE_VALUES[key] !== undefined ? SAMPLE_VALUES[key] : `{${key}}`;
+  });
+}
+
+function hasPlaceholders(value: string): boolean {
+  return /\{(\w+)\}/.test(value);
+}
+
 export default function SettingsI18n() {
   const { data, isLoading } = useListI18nStrings();
   const bulkUpdate = useBulkUpdateI18nStrings();
+  const flushCache = useFlushI18nCache();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const [tab, setTab] = useState<LangTab>("vi");
   const [search, setSearch] = useState("");
   const [edits, setEdits] = useState<EditMap>({});
+  const [previewKeys, setPreviewKeys] = useState<Set<string>>(new Set());
 
   const strings = data?.data ?? [];
 
@@ -47,6 +74,15 @@ export default function SettingsI18n() {
     }));
   };
 
+  const togglePreview = (key: string) => {
+    setPreviewKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const dirtyKeys = Object.keys(edits);
 
   const handleSave = () => {
@@ -68,6 +104,17 @@ export default function SettingsI18n() {
         },
       }
     );
+  };
+
+  const handleFlushCache = () => {
+    flushCache.mutate(undefined, {
+      onSuccess: () => {
+        toast({ title: "Cache đã được xoá", description: "Bot sẽ dùng các chuỗi mới nhất ngay lập tức." });
+      },
+      onError: () => {
+        toast({ title: "Lỗi", description: "Không thể xoá cache. Vui lòng thử lại.", variant: "destructive" });
+      },
+    });
   };
 
   const handleDiscard = () => setEdits({});
@@ -100,6 +147,20 @@ export default function SettingsI18n() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleFlushCache}
+            disabled={flushCache.isPending}
+            title="Xoá cache để bot dùng các chuỗi mới nhất ngay lập tức"
+          >
+            {flushCache.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+            ) : (
+              <Zap className="h-4 w-4 mr-1" />
+            )}
+            Flush Cache
+          </Button>
           {dirtyKeys.length > 0 && (
             <>
               <Badge variant="secondary">{dirtyKeys.length} thay đổi</Badge>
@@ -159,6 +220,8 @@ export default function SettingsI18n() {
               {rows.map(s => {
                 const isDirty = !!edits[s.key];
                 const currentValue = getValue(s.key, tab);
+                const showPreview = previewKeys.has(s.key);
+                const canPreview = hasPlaceholders(currentValue);
                 return (
                   <div key={s.key} className="flex items-start gap-4 px-4 py-3">
                     <div className="w-56 shrink-0 pt-1">
@@ -169,13 +232,30 @@ export default function SettingsI18n() {
                         </Badge>
                       )}
                     </div>
-                    <div className="flex-1">
-                      <textarea
-                        className="w-full text-sm bg-background border border-input rounded-md px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] font-mono"
-                        rows={currentValue.split("\n").length}
-                        value={currentValue}
-                        onChange={e => handleChange(s.key, tab, e.target.value)}
-                      />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-start gap-2">
+                        <textarea
+                          className="flex-1 text-sm bg-background border border-input rounded-md px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] font-mono"
+                          rows={currentValue.split("\n").length}
+                          value={currentValue}
+                          onChange={e => handleChange(s.key, tab, e.target.value)}
+                        />
+                        {canPreview && (
+                          <button
+                            type="button"
+                            onClick={() => togglePreview(s.key)}
+                            className="mt-1 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title={showPreview ? "Ẩn xem trước" : "Xem trước với dữ liệu mẫu"}
+                          >
+                            {showPreview ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
+                      </div>
+                      {showPreview && canPreview && (
+                        <div className="rounded-md bg-muted/40 border border-border px-3 py-2 text-xs text-foreground whitespace-pre-wrap">
+                          {renderPreview(currentValue)}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

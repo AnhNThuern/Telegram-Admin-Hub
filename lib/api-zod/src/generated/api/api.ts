@@ -1238,6 +1238,13 @@ export const BulkUpdateI18nStringsResponse = zod.object({
 });
 
 /**
+ * @summary Flush the in-memory i18n cache so the bot picks up changes immediately
+ */
+export const FlushI18nCacheResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
  * @summary Update a single i18n string by key
  */
 export const UpdateI18nStringParams = zod.object({
