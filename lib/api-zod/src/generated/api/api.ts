@@ -164,6 +164,7 @@ export const ListProductsQueryParams = zod.object({
   search: zod.coerce.string().optional(),
   categoryId: zod.coerce.number().optional(),
   isActive: zod.coerce.boolean().optional(),
+  orderBy: zod.enum(["createdAt", "stockRequestCount"]).optional(),
 });
 
 export const ListProductsResponse = zod.object({

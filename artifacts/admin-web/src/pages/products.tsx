@@ -89,6 +89,7 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<string>("all");
   const [isActiveFilter, setIsActiveFilter] = useState<string>("all");
+  const [orderBy, setOrderBy] = useState<"createdAt" | "stockRequestCount">("createdAt");
   const [stockRequestProduct, setStockRequestProduct] = useState<{ id: number; name: string } | null>(null);
   
   const { data: productList, isLoading } = useListProducts({
@@ -97,6 +98,7 @@ export default function Products() {
     search: search || undefined,
     categoryId: categoryId !== "all" ? Number(categoryId) : undefined,
     isActive: isActiveFilter !== "all" ? isActiveFilter === "true" : undefined,
+    orderBy,
   });
 
   const { data: categoryList } = useListCategories();
@@ -367,6 +369,15 @@ export default function Products() {
             <SelectItem value="all">Tất cả</SelectItem>
             <SelectItem value="true">Đang bán</SelectItem>
             <SelectItem value="false">Đã ẩn</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={orderBy} onValueChange={(v) => { setOrderBy(v as "createdAt" | "stockRequestCount"); setPage(1); }}>
+          <SelectTrigger className="w-[200px]" data-testid="select-product-order">
+            <SelectValue placeholder="Sắp xếp" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="createdAt">Mới nhất</SelectItem>
+            <SelectItem value="stockRequestCount">Yêu cầu nhiều nhất</SelectItem>
           </SelectContent>
         </Select>
       </div>

@@ -583,6 +583,7 @@ export type ListProductsParams = {
   search?: string;
   categoryId?: number;
   isActive?: boolean;
+  orderBy?: 'createdAt' | 'stockRequestCount';
 };
 
 export type ListProductStocksParams = {

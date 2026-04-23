@@ -256,6 +256,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: orderBy
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, stockRequestCount]
       responses:
         "200":
           description: Product list with pagination

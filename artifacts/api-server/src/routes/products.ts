@@ -25,7 +25,7 @@ import type z from "zod";
 const router: IRouter = Router();
 
 router.get("/products", requireAuth, validateQuery(ListProductsQueryParams), async (req, res): Promise<void> => {
-  const { page, limit, search, categoryId, isActive } = res.locals["query"] as z.infer<typeof ListProductsQueryParams>;
+  const { page, limit, search, categoryId, isActive, orderBy } = res.locals["query"] as z.infer<typeof ListProductsQueryParams>;
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -33,6 +33,9 @@ router.get("/products", requireAuth, validateQuery(ListProductsQueryParams), asy
   if (categoryId !== undefined) conditions.push(eq(productsTable.categoryId, categoryId));
   if (isActive !== undefined) conditions.push(eq(productsTable.isActive, isActive));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const stockCountExpr = sql<number>`COALESCE(SUM(CASE WHEN ${productStocksTable.status} = 'available' THEN 1 ELSE 0 END), 0)::int`;
+  const stockRequestCountExpr = sql<number>`(SELECT COUNT(DISTINCT bl.customer_id) FROM bot_logs bl WHERE bl.action = 'stock_request' AND (bl.metadata->>'productId')::int = ${productsTable.id})::int`;
 
   const [totalRow] = await db.select({ count: count() }).from(productsTable).where(where);
   const products = await db.select({
@@ -50,14 +53,21 @@ router.get("/products", requireAuth, validateQuery(ListProductsQueryParams), asy
     isActive: productsTable.isActive,
     createdAt: productsTable.createdAt,
     updatedAt: productsTable.updatedAt,
-    stockCount: sql<number>`COALESCE(SUM(CASE WHEN ${productStocksTable.status} = 'available' THEN 1 ELSE 0 END), 0)::int`,
-    stockRequestCount: sql<number>`(SELECT COUNT(DISTINCT bl.customer_id) FROM bot_logs bl WHERE bl.action = 'stock_request' AND (bl.metadata->>'productId')::int = ${productsTable.id})::int`,
+    stockCount: stockCountExpr,
+    stockRequestCount: stockRequestCountExpr,
   })
     .from(productsTable)
     .leftJoin(productStocksTable, eq(productStocksTable.productId, productsTable.id))
     .where(where)
     .groupBy(productsTable.id)
-    .orderBy(productsTable.createdAt)
+    .orderBy(
+      ...(orderBy === "stockRequestCount"
+        ? [
+            sql`CASE WHEN COALESCE(SUM(CASE WHEN ${productStocksTable.status} = 'available' THEN 1 ELSE 0 END), 0) = 0 THEN 0 ELSE 1 END ASC`,
+            sql`(SELECT COUNT(DISTINCT bl.customer_id) FROM bot_logs bl WHERE bl.action = 'stock_request' AND (bl.metadata->>'productId')::int = ${productsTable.id}) DESC`,
+          ]
+        : [productsTable.createdAt])
+    )
     .limit(limit)
     .offset(offset);
 
