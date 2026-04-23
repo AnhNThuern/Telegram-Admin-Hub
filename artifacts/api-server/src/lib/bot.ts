@@ -480,14 +480,46 @@ export async function broadcastProductNotification(
   productId: number,
   productName: string,
   productPrice: string,
+  audience: "all" | "buyers" | "requesters" = "all",
 ): Promise<{ sent: number; total: number; botConfigured: boolean }> {
   const token = await getBotToken();
   if (!token) return { sent: 0, total: 0, botConfigured: false };
 
-  const customers = await db
-    .select({ chatId: customersTable.chatId })
-    .from(customersTable)
-    .where(eq(customersTable.isActive, true));
+  let customers: { chatId: string }[];
+
+  if (audience === "buyers") {
+    const rows = await db
+      .selectDistinct({ chatId: customersTable.chatId })
+      .from(ordersTable)
+      .innerJoin(orderItemsTable, eq(orderItemsTable.orderId, ordersTable.id))
+      .innerJoin(customersTable, eq(customersTable.id, ordersTable.customerId))
+      .where(
+        and(
+          eq(orderItemsTable.productId, productId),
+          eq(ordersTable.status, "delivered"),
+          eq(customersTable.isActive, true),
+        )
+      );
+    customers = rows;
+  } else if (audience === "requesters") {
+    const rows = await db
+      .selectDistinct({ chatId: customersTable.chatId })
+      .from(botLogsTable)
+      .innerJoin(customersTable, eq(customersTable.id, botLogsTable.customerId))
+      .where(
+        and(
+          eq(botLogsTable.action, "stock_request"),
+          sqlOp`(${botLogsTable.metadata}->>'productId')::int = ${productId}`,
+          eq(customersTable.isActive, true),
+        )
+      );
+    customers = rows;
+  } else {
+    customers = await db
+      .select({ chatId: customersTable.chatId })
+      .from(customersTable)
+      .where(eq(customersTable.isActive, true));
+  }
 
   const priceFormatted = parseFloat(productPrice).toLocaleString("vi-VN");
   const text =
@@ -523,8 +555,8 @@ export async function broadcastProductNotification(
     "broadcast_restock",
     undefined,
     undefined,
-    `Broadcast for product ${productId} (${productName}): ${sent}/${total} sent`,
-    { productId, productName, sent, total },
+    `Broadcast for product ${productId} (${productName}): ${sent}/${total} sent (audience: ${audience})`,
+    { productId, productName, sent, total, audience },
   );
 
   return { sent, total, botConfigured: true };

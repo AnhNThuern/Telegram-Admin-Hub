@@ -353,16 +353,40 @@ export const ListProductStockRequestsResponse = zod.object({
 });
 
 /**
- * @summary Broadcast a restock notification to all registered Telegram users
+ * @summary Broadcast a restock notification to selected users
  */
 export const NotifyProductRestockedParams = zod.object({
   id: zod.coerce.number(),
+});
+
+export const NotifyProductRestockedBody = zod.object({
+  audience: zod
+    .enum(["all", "buyers", "requesters"])
+    .optional()
+    .describe('Which users to notify. Defaults to \"all\".'),
 });
 
 export const NotifyProductRestockedResponse = zod.object({
   sent: zod.number().describe("Number of users successfully notified"),
   total: zod.number().describe("Total number of users attempted"),
   message: zod.string(),
+});
+
+/**
+ * @summary Estimate how many users would be notified for a given audience
+ */
+export const GetNotifyEstimateParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetNotifyEstimateQueryParams = zod.object({
+  audience: zod.enum(["all", "buyers", "requesters"]).optional(),
+});
+
+export const GetNotifyEstimateResponse = zod.object({
+  count: zod
+    .number()
+    .describe("Estimated number of recipients for the given audience"),
 });
 
 /**
@@ -1081,6 +1105,13 @@ export const TestBotTokenResponse = zod.object({
  * @summary Set Telegram webhook
  */
 export const SetBotWebhookResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Re-register bot commands with Telegram
+ */
+export const RegisterBotCommandsResponse = zod.object({
   message: zod.string(),
 });
 

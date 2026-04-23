@@ -233,12 +233,34 @@ export interface AddStocksResponse {
   message: string;
 }
 
+/**
+ * Which users to notify. Defaults to "all".
+ */
+export type NotifyProductRequestAudience =
+  (typeof NotifyProductRequestAudience)[keyof typeof NotifyProductRequestAudience];
+
+export const NotifyProductRequestAudience = {
+  all: "all",
+  buyers: "buyers",
+  requesters: "requesters",
+} as const;
+
+export interface NotifyProductRequest {
+  /** Which users to notify. Defaults to "all". */
+  audience?: NotifyProductRequestAudience;
+}
+
 export interface NotifyProductResponse {
   /** Number of users successfully notified */
   sent: number;
   /** Total number of users attempted */
   total: number;
   message: string;
+}
+
+export interface NotifyEstimateResponse {
+  /** Estimated number of recipients for the given audience */
+  count: number;
 }
 
 export interface StockRequester {
@@ -583,12 +605,33 @@ export type ListProductsParams = {
   search?: string;
   categoryId?: number;
   isActive?: boolean;
-  orderBy?: 'createdAt' | 'stockRequestCount';
+  orderBy?: ListProductsOrderBy;
 };
+
+export type ListProductsOrderBy =
+  (typeof ListProductsOrderBy)[keyof typeof ListProductsOrderBy];
+
+export const ListProductsOrderBy = {
+  createdAt: "createdAt",
+  stockRequestCount: "stockRequestCount",
+} as const;
 
 export type ListProductStocksParams = {
   status?: string;
 };
+
+export type GetNotifyEstimateParams = {
+  audience?: GetNotifyEstimateAudience;
+};
+
+export type GetNotifyEstimateAudience =
+  (typeof GetNotifyEstimateAudience)[keyof typeof GetNotifyEstimateAudience];
+
+export const GetNotifyEstimateAudience = {
+  all: "all",
+  buyers: "buyers",
+  requesters: "requesters",
+} as const;
 
 export type ListOrdersParams = {
   page?: number;

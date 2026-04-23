@@ -37,6 +37,7 @@ import type {
   FlushI18nCache200,
   GetCustomerOrdersParams,
   GetCustomerTransactionsParams,
+  GetNotifyEstimateParams,
   GetRestockQueue200,
   HandleBotWebhookBody,
   HandleSepayWebhookBody,
@@ -51,6 +52,8 @@ import type {
   ListTransactionsParams,
   LoginRequest,
   MessageResponse,
+  NotifyEstimateResponse,
+  NotifyProductRequest,
   NotifyProductResponse,
   OrderDetail,
   OrderListResponse,
@@ -1614,7 +1617,7 @@ export function useListProductStockRequests<
 }
 
 /**
- * @summary Broadcast a restock notification to all registered Telegram users
+ * @summary Broadcast a restock notification to selected users
  */
 export const getNotifyProductRestockedUrl = (id: number) => {
   return `/api/products/${id}/notify`;
@@ -1622,11 +1625,14 @@ export const getNotifyProductRestockedUrl = (id: number) => {
 
 export const notifyProductRestocked = async (
   id: number,
+  notifyProductRequest?: NotifyProductRequest,
   options?: RequestInit,
 ): Promise<NotifyProductResponse> => {
   return customFetch<NotifyProductResponse>(getNotifyProductRestockedUrl(id), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(notifyProductRequest),
   });
 };
 
@@ -1637,14 +1643,14 @@ export const getNotifyProductRestockedMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof notifyProductRestocked>>,
     TError,
-    { id: number },
+    { id: number; data: BodyType<NotifyProductRequest> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof notifyProductRestocked>>,
   TError,
-  { id: number },
+  { id: number; data: BodyType<NotifyProductRequest> },
   TContext
 > => {
   const mutationKey = ["notifyProductRestocked"];
@@ -1658,11 +1664,11 @@ export const getNotifyProductRestockedMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof notifyProductRestocked>>,
-    { id: number }
+    { id: number; data: BodyType<NotifyProductRequest> }
   > = (props) => {
-    const { id } = props ?? {};
+    const { id, data } = props ?? {};
 
-    return notifyProductRestocked(id, requestOptions);
+    return notifyProductRestocked(id, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -1671,11 +1677,11 @@ export const getNotifyProductRestockedMutationOptions = <
 export type NotifyProductRestockedMutationResult = NonNullable<
   Awaited<ReturnType<typeof notifyProductRestocked>>
 >;
-
+export type NotifyProductRestockedMutationBody = BodyType<NotifyProductRequest>;
 export type NotifyProductRestockedMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Broadcast a restock notification to all registered Telegram users
+ * @summary Broadcast a restock notification to selected users
  */
 export const useNotifyProductRestocked = <
   TError = ErrorType<ErrorResponse>,
@@ -1684,18 +1690,134 @@ export const useNotifyProductRestocked = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof notifyProductRestocked>>,
     TError,
-    { id: number },
+    { id: number; data: BodyType<NotifyProductRequest> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof notifyProductRestocked>>,
   TError,
-  { id: number },
+  { id: number; data: BodyType<NotifyProductRequest> },
   TContext
 > => {
   return useMutation(getNotifyProductRestockedMutationOptions(options));
 };
+
+/**
+ * @summary Estimate how many users would be notified for a given audience
+ */
+export const getGetNotifyEstimateUrl = (
+  id: number,
+  params?: GetNotifyEstimateParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/products/${id}/notify-estimate?${stringifiedParams}`
+    : `/api/products/${id}/notify-estimate`;
+};
+
+export const getNotifyEstimate = async (
+  id: number,
+  params?: GetNotifyEstimateParams,
+  options?: RequestInit,
+): Promise<NotifyEstimateResponse> => {
+  return customFetch<NotifyEstimateResponse>(
+    getGetNotifyEstimateUrl(id, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetNotifyEstimateQueryKey = (
+  id: number,
+  params?: GetNotifyEstimateParams,
+) => {
+  return [
+    `/api/products/${id}/notify-estimate`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetNotifyEstimateQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNotifyEstimate>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: number,
+  params?: GetNotifyEstimateParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNotifyEstimate>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetNotifyEstimateQueryKey(id, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getNotifyEstimate>>
+  > = ({ signal }) =>
+    getNotifyEstimate(id, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNotifyEstimate>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNotifyEstimateQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNotifyEstimate>>
+>;
+export type GetNotifyEstimateQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Estimate how many users would be notified for a given audience
+ */
+
+export function useGetNotifyEstimate<
+  TData = Awaited<ReturnType<typeof getNotifyEstimate>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  id: number,
+  params?: GetNotifyEstimateParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getNotifyEstimate>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNotifyEstimateQueryOptions(id, params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Delete a stock line
@@ -3867,87 +3989,6 @@ export const useSetBotWebhook = <
 };
 
 /**
- * @summary Disconnect and clear bot config
- */
-export const getDisconnectBotUrl = () => {
-  return `/api/bot/disconnect`;
-};
-
-export const disconnectBot = async (
-  options?: RequestInit,
-): Promise<MessageResponse> => {
-  return customFetch<MessageResponse>(getDisconnectBotUrl(), {
-    ...options,
-    method: "POST",
-  });
-};
-
-export const getDisconnectBotMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof disconnectBot>>,
-    TError,
-    void,
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof disconnectBot>>,
-  TError,
-  void,
-  TContext
-> => {
-  const mutationKey = ["disconnectBot"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof disconnectBot>>,
-    void
-  > = () => {
-    return disconnectBot(requestOptions);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type DisconnectBotMutationResult = NonNullable<
-  Awaited<ReturnType<typeof disconnectBot>>
->;
-
-export type DisconnectBotMutationError = ErrorType<unknown>;
-
-/**
- * @summary Disconnect and clear bot config
- */
-export const useDisconnectBot = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof disconnectBot>>,
-    TError,
-    void,
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof disconnectBot>>,
-  TError,
-  void,
-  TContext
-> => {
-  return useMutation(getDisconnectBotMutationOptions(options));
-};
-
-/**
  * @summary Re-register bot commands with Telegram
  */
 export const getRegisterBotCommandsUrl = () => {
@@ -4026,6 +4067,87 @@ export const useRegisterBotCommands = <
   TContext
 > => {
   return useMutation(getRegisterBotCommandsMutationOptions(options));
+};
+
+/**
+ * @summary Disconnect and clear bot config
+ */
+export const getDisconnectBotUrl = () => {
+  return `/api/bot/disconnect`;
+};
+
+export const disconnectBot = async (
+  options?: RequestInit,
+): Promise<MessageResponse> => {
+  return customFetch<MessageResponse>(getDisconnectBotUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getDisconnectBotMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof disconnectBot>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof disconnectBot>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["disconnectBot"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof disconnectBot>>,
+    void
+  > = () => {
+    return disconnectBot(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DisconnectBotMutationResult = NonNullable<
+  Awaited<ReturnType<typeof disconnectBot>>
+>;
+
+export type DisconnectBotMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Disconnect and clear bot config
+ */
+export const useDisconnectBot = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof disconnectBot>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof disconnectBot>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getDisconnectBotMutationOptions(options));
 };
 
 /**

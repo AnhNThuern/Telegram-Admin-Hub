@@ -435,13 +435,19 @@ paths:
     post:
       operationId: notifyProductRestocked
       tags: [stocks]
-      summary: Broadcast a restock notification to all registered Telegram users
+      summary: Broadcast a restock notification to selected users
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotifyProductRequest"
       responses:
         "200":
           description: Broadcast result
@@ -449,6 +455,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NotifyProductResponse"
+        "404":
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /products/{id}/notify-estimate:
+    get:
+      operationId: getNotifyEstimate
+      tags: [stocks]
+      summary: Estimate how many users would be notified for a given audience
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: audience
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, buyers, requesters]
+      responses:
+        "200":
+          description: Estimated recipient count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotifyEstimateResponse"
         "404":
           description: Product not found
           content:
@@ -1747,6 +1784,14 @@ components:
         - added
         - message
 
+    NotifyProductRequest:
+      type: object
+      properties:
+        audience:
+          type: string
+          enum: [all, buyers, requesters]
+          description: Which users to notify. Defaults to "all".
+
     NotifyProductResponse:
       type: object
       properties:
@@ -1762,6 +1807,15 @@ components:
         - sent
         - total
         - message
+
+    NotifyEstimateResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Estimated number of recipients for the given audience
+      required:
+        - count
 
     StockRequester:
       type: object

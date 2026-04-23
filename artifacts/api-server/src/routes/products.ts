@@ -18,6 +18,9 @@ import {
   AddProductStocksBody,
   DeleteStockParams,
   NotifyProductRestockedParams,
+  NotifyProductRestockedBody,
+  GetNotifyEstimateParams,
+  GetNotifyEstimateQueryParams,
   ListProductStockRequestsParams,
 } from "@workspace/api-zod";
 import type z from "zod";
@@ -313,8 +316,74 @@ router.get("/products/:id/stock-requests", requireAuth, validateParams(ListProdu
   res.json({ data: rows, total: rows.length });
 });
 
+router.get("/products/:id/notify-estimate", requireAuth, validateParams(GetNotifyEstimateParams), validateQuery(GetNotifyEstimateQueryParams), async (req, res): Promise<void> => {
+  const { id: productId } = req.params as unknown as z.infer<typeof GetNotifyEstimateParams>;
+  const { audience = "all" } = res.locals["query"] as z.infer<typeof GetNotifyEstimateQueryParams>;
+
+  const [product] = await db.select({ id: productsTable.id }).from(productsTable).where(eq(productsTable.id, productId));
+  if (!product) {
+    res.status(404).json({ error: "Product not found" });
+    return;
+  }
+
+  let countResult: number;
+
+  if (audience === "buyers") {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(
+        db
+          .selectDistinct({ customerId: ordersTable.customerId })
+          .from(ordersTable)
+          .innerJoin(orderItemsTable, eq(orderItemsTable.orderId, ordersTable.id))
+          .innerJoin(customersTable, eq(customersTable.id, ordersTable.customerId))
+          .where(
+            and(
+              eq(orderItemsTable.productId, productId),
+              eq(ordersTable.status, "delivered"),
+              eq(customersTable.isActive, true),
+            )
+          )
+          .as("buyers")
+      );
+    countResult = Number(value);
+  } else if (audience === "requesters") {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(
+        db
+          .selectDistinct({ customerId: botLogsTable.customerId })
+          .from(botLogsTable)
+          .innerJoin(customersTable, eq(customersTable.id, botLogsTable.customerId))
+          .where(
+            and(
+              eq(botLogsTable.action, "stock_request"),
+              sql`(${botLogsTable.metadata}->>'productId')::int = ${productId}`,
+              eq(customersTable.isActive, true),
+            )
+          )
+          .as("requesters")
+      );
+    countResult = Number(value);
+  } else {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(customersTable)
+      .where(eq(customersTable.isActive, true));
+    countResult = Number(value);
+  }
+
+  res.json({ count: countResult });
+});
+
 router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRestockedParams), async (req, res): Promise<void> => {
   const { id: productId } = req.params as unknown as z.infer<typeof NotifyProductRestockedParams>;
+  const parsed = NotifyProductRestockedBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "Validation error", details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });
+    return;
+  }
+  const audience = parsed.data.audience ?? "all";
 
   const [product] = await db.select({
     id: productsTable.id,
@@ -327,7 +396,7 @@ router.post("/products/:id/notify", requireAuth, validateParams(NotifyProductRes
     return;
   }
 
-  const { sent, total, botConfigured } = await broadcastProductNotification(productId, product.name, product.price);
+  const { sent, total, botConfigured } = await broadcastProductNotification(productId, product.name, product.price, audience);
 
   if (!botConfigured) {
     res.status(503).json({ error: "Bot token chưa được cấu hình. Vui lòng cấu hình Telegram bot trước khi gửi thông báo." });
