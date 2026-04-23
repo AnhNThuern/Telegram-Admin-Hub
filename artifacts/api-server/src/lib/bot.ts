@@ -314,14 +314,14 @@ async function renderView(chatId: number | string, editMessageId: number | undef
   return sendMessage(chatId, text, options);
 }
 
-async function sendPhoto(chatId: number | string, photoUrl: string, caption?: string): Promise<boolean> {
+async function sendPhoto(chatId: number | string, photoUrl: string, caption?: string, reply_markup?: object): Promise<boolean> {
   const token = await getBotToken();
   if (!token) return false;
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption, parse_mode: "HTML" }),
+      body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption, parse_mode: "HTML", ...(reply_markup ? { reply_markup } : {}) }),
     });
     const data = await res.json() as { ok: boolean; description?: string };
     if (!data.ok) {
@@ -1091,6 +1091,7 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
         inline_keyboard: [
           [{ text: `💰 Trả bằng số dư (${balanceFormatted}đ)`, callback_data: `pay_with_balance_${order.id}` }],
           [{ text: "🏦 Chuyển khoản ngân hàng", callback_data: `show_bank_transfer_${order.id}` }],
+          [{ text: "❌ Hủy đơn hàng", callback_data: `cancel_order_${order.id}` }],
         ],
       },
     });
@@ -1119,15 +1120,79 @@ async function createOrderFromBot(chatId: number | string, customerId: number, p
       msg += `\n\n💡 <i>Số dư ví ${customerBalance.toLocaleString("vi-VN")}đ chưa đủ để thanh toán. Nạp thêm bằng /naptien để thanh toán nhanh hơn.</i>`;
     }
 
+    const cancelKeyboard = { inline_keyboard: [[{ text: "❌ Hủy đơn hàng", callback_data: `cancel_order_${order.id}` }]] };
     if (paymentInfo.qrUrl) {
-      const sent = await sendPhoto(chatId, paymentInfo.qrUrl, msg);
-      if (!sent) await sendMessage(chatId, msg);
+      const sent = await sendPhoto(chatId, paymentInfo.qrUrl, msg, cancelKeyboard);
+      if (!sent) await sendMessage(chatId, msg, { reply_markup: cancelKeyboard });
     } else {
-      await sendMessage(chatId, msg);
+      await sendMessage(chatId, msg, { reply_markup: cancelKeyboard });
     }
     await logBotAction("payment_initiated", String(chatId), customerId, `Payment for order ${orderCode}`, { orderId: order.id, reference: paymentInfo.reference });
   } else {
-    await sendMessage(chatId, `✅ Đơn hàng <b>${orderCode}</b> đã tạo! Vui lòng liên hệ admin để thanh toán.`);
+    await sendMessage(chatId, `✅ Đơn hàng <b>${orderCode}</b> đã tạo! Vui lòng liên hệ admin để thanh toán.`, {
+      reply_markup: { inline_keyboard: [[{ text: "❌ Hủy đơn hàng", callback_data: `cancel_order_${order.id}` }]] },
+    });
+  }
+}
+
+async function cancelOrderByCustomer(chatId: number | string, orderId: number, customerId: number, messageId?: number): Promise<void> {
+  const [order] = await db.select().from(ordersTable).where(
+    and(eq(ordersTable.id, orderId), eq(ordersTable.customerId, customerId))
+  );
+
+  if (!order) {
+    await sendMessage(chatId, "❌ Không tìm thấy đơn hàng.");
+    return;
+  }
+  if (order.status !== "pending") {
+    const statusLabels: Record<string, string> = {
+      paid: "đã thanh toán",
+      delivered: "đã giao",
+      cancelled: "đã bị hủy trước đó",
+      failed: "đã thất bại",
+    };
+    const label = statusLabels[order.status] ?? order.status;
+    const msg = `❌ Đơn hàng <b>#${order.orderCode}</b> không thể hủy vì ${label}.`;
+    if (messageId) {
+      await renderView(chatId, messageId, msg, { reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] } });
+    } else {
+      await sendMessage(chatId, msg, { reply_markup: { inline_keyboard: [[{ text: "🏠 Trang chủ", callback_data: "main_menu" }]] } });
+    }
+    return;
+  }
+
+  // Release reserved stock back to available
+  await db.execute(
+    sqlOp`UPDATE product_stocks SET status = 'available', order_id = NULL WHERE order_id = ${orderId} AND status = 'reserved'`
+  );
+
+  // Mark order cancelled
+  await db.update(ordersTable).set({ status: "cancelled" }).where(eq(ordersTable.id, orderId));
+
+  // Cancel any pending payment transactions for this order
+  await db.update(transactionsTable)
+    .set({ status: "cancelled" })
+    .where(and(eq(transactionsTable.orderId, orderId), eq(transactionsTable.status, "pending")));
+
+  await logBotAction("cancel_order", String(chatId), customerId, `Customer cancelled order ${order.orderCode}`, { orderId });
+
+  const msg = `✅ Đơn hàng <b>#${order.orderCode}</b> đã được hủy thành công.\n\nTồn kho đã được hoàn trả. Bạn có thể đặt hàng lại bất cứ lúc nào.`;
+  if (messageId) {
+    await renderView(chatId, messageId, msg, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🛍️ Tiếp tục mua hàng", callback_data: "main_menu" }],
+        ],
+      },
+    });
+  } else {
+    await sendMessage(chatId, msg, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🛍️ Tiếp tục mua hàng", callback_data: "main_menu" }],
+        ],
+      },
+    });
   }
 }
 
@@ -1192,13 +1257,14 @@ async function sendBankTransferForOrder(chatId: number | string, orderId: number
   // If we have a SePay QR URL, send the QR image with the payment details as the
   // caption — this matches the topup flow and lets customers pay by scanning.
   // Fall back to a plain text message if QR generation failed for any reason.
+  const cancelKeyboard = { inline_keyboard: [[{ text: "❌ Hủy đơn hàng", callback_data: `cancel_order_${orderId}` }]] };
   if (paymentInfo.qrUrl) {
-    const sent = await sendPhoto(chatId, paymentInfo.qrUrl, msg);
+    const sent = await sendPhoto(chatId, paymentInfo.qrUrl, msg, cancelKeyboard);
     if (!sent) {
-      await sendMessage(chatId, msg);
+      await sendMessage(chatId, msg, { reply_markup: cancelKeyboard });
     }
   } else {
-    await sendMessage(chatId, msg);
+    await sendMessage(chatId, msg, { reply_markup: cancelKeyboard });
   }
 }
 
@@ -1667,6 +1733,21 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         await clearAwaitingPromo(chatId);
         clearAwaitingQuantity(chatId);
         await showWalletHistory(chatId, customer);
+      } else if (text === "/cancel" || text.startsWith("/cancel ")) {
+        await clearAwaitingPromo(chatId);
+        clearAwaitingQuantity(chatId);
+        // Find the most recent pending order for this customer
+        const [latestOrder] = await db
+          .select({ id: ordersTable.id, orderCode: ordersTable.orderCode })
+          .from(ordersTable)
+          .where(and(eq(ordersTable.customerId, customer.id), eq(ordersTable.status, "pending")))
+          .orderBy(desc(ordersTable.createdAt))
+          .limit(1);
+        if (!latestOrder) {
+          await sendMessage(chatId, "ℹ️ Bạn không có đơn hàng nào đang chờ thanh toán để hủy.");
+        } else {
+          await cancelOrderByCustomer(chatId, latestOrder.id, customer.id);
+        }
       } else if (awaitingQuantity.has(String(chatId)) && text.trim().length > 0) {
         const entry = peekAwaitingQuantity(chatId);
         if (!entry) {
@@ -2054,6 +2135,9 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         } else {
           await sendMessage(chatId, "❌ Đơn hàng không còn hợp lệ để thanh toán bằng ví.");
         }
+      } else if (data.startsWith("cancel_order_")) {
+        const orderId = parseInt(data.replace("cancel_order_", ""), 10);
+        if (!isNaN(orderId)) await cancelOrderByCustomer(chatId, orderId, customer.id, messageId);
       } else if (data.startsWith("show_bank_transfer_")) {
         const orderId = parseInt(data.replace("show_bank_transfer_", ""), 10);
         await sendBankTransferForOrder(chatId, orderId, customer.id);
